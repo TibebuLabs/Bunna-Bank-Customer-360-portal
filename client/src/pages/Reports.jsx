@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLang } from "../i18n/LanguageContext";
 import { MOCK_CUSTOMERS } from "../data/mockData";
 import { BUNNA_BRANCHES } from "../data/branchData";
 import { HiBuildingOffice2, HiChartBar, HiUsers } from "react-icons/hi2";
@@ -26,14 +27,14 @@ const SOL_MAP = {};
 BUNNA_BRANCHES.forEach(b => { SOL_MAP[String(b.solId)] = b; });
 
 // ── sub-components ────────────────────────────────────────────────────────────
-function MetricGrid({ m, compact }) {
+function MetricGrid({ m, compact, t }) {
   const items = [
-    { label: "Total Customers",  value: m.total,    bg: "bg-gray-50",    text: "text-gray-800"  },
-    { label: "Active",           value: m.active,   bg: "bg-green-50",   text: "text-green-700" },
-    { label: "Inactive",         value: m.inactive, bg: "bg-gray-50",    text: "text-gray-600"  },
-    { label: "Lien",             value: m.lien,     bg: "bg-orange-50",  text: "text-orange-700"},
-    { label: "Frozen",           value: m.frozen,   bg: "bg-red-50",     text: "text-red-700"   },
-    { label: "Dormant",          value: m.dormant,  bg: "bg-yellow-50",  text: "text-yellow-700"},
+    { label: t.metricTotal,    value: m.total,    bg: "bg-gray-50",    text: "text-gray-800"  },
+    { label: t.metricActive,   value: m.active,   bg: "bg-green-50",   text: "text-green-700" },
+    { label: t.metricInactive, value: m.inactive, bg: "bg-gray-50",    text: "text-gray-600"  },
+    { label: t.metricLien,     value: m.lien,     bg: "bg-orange-50",  text: "text-orange-700"},
+    { label: t.metricFrozen,   value: m.frozen,   bg: "bg-red-50",     text: "text-red-700"   },
+    { label: t.metricDormant,  value: m.dormant,  bg: "bg-yellow-50",  text: "text-yellow-700"},
   ];
   return (
     <div className={`grid gap-2 ${compact ? "grid-cols-3 xl:grid-cols-6" : "grid-cols-2 xl:grid-cols-6"}`}>
@@ -49,6 +50,7 @@ function MetricGrid({ m, compact }) {
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function Reports() {
+  const { t } = useLang();
   const [activeTab, setActiveTab] = useState("bank");
   const [selectedDistrict, setSelectedDistrict] = useState("");
   const [districtSearch, setDistrictSearch] = useState("");
@@ -74,9 +76,9 @@ export default function Reports() {
   });
 
   const tabs = [
-    { id: "bank",     label: "Bank Level",     icon: <HiChartBar className="w-4 h-4" /> },
-    { id: "district", label: "District Level", icon: <HiBuildingOffice2 className="w-4 h-4" /> },
-    { id: "branch",   label: "Branch Level",   icon: <HiUsers className="w-4 h-4" /> },
+    { id: "bank",     label: t.bankLevel,     icon: <HiChartBar className="w-4 h-4" /> },
+    { id: "district", label: t.districtLevel, icon: <HiBuildingOffice2 className="w-4 h-4" /> },
+    { id: "branch",   label: t.branchLevel,   icon: <HiUsers className="w-4 h-4" /> },
   ];
 
   return (
@@ -84,12 +86,8 @@ export default function Reports() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Reports</h1>
-          <p className="text-gray-500 text-sm mt-1">Live account status summary — demo data</p>
-        </div>
-        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 px-4 py-2 rounded-full text-xs font-medium">
-          <span className="w-2 h-2 bg-amber-500 rounded-full" />
-          Demo Mode
+          <h1 className="text-2xl font-bold text-gray-800">{t.reportsTitle}</h1>
+          <p className="text-gray-500 text-sm mt-1">{t.reportsSubtitle}</p>
         </div>
       </div>
 
@@ -118,7 +116,7 @@ export default function Reports() {
               </div>
               <div>
                 <div className="text-3xl font-bold font-mono text-gray-800">{DISTRICTS.length}</div>
-                <div className="text-sm text-gray-500 mt-0.5">Total Districts / Area Offices</div>
+                <div className="text-sm text-gray-500 mt-0.5">{t.totalDistricts}</div>
               </div>
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
@@ -127,7 +125,7 @@ export default function Reports() {
               </div>
               <div>
                 <div className="text-3xl font-bold font-mono text-gray-800">{BUNNA_BRANCHES.length}</div>
-                <div className="text-sm text-gray-500 mt-0.5">Total Branches</div>
+                <div className="text-sm text-gray-500 mt-0.5">{t.totalBranches}</div>
               </div>
             </div>
           </div>
@@ -139,21 +137,21 @@ export default function Reports() {
                 <HiChartBar className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="font-bold text-gray-800">Bunna Bank — All Branches</h2>
-                <p className="text-xs text-gray-400">Consolidated account status across {BUNNA_BRANCHES.length} branches in {DISTRICTS.length} districts</p>
+                <h2 className="font-bold text-gray-800">{t.allBranches}</h2>
+                <p className="text-xs text-gray-400">{t.consolidatedDesc} {BUNNA_BRANCHES.length} {t.branches} {DISTRICTS.length} {t.districts}</p>
               </div>
             </div>
-            <MetricGrid m={bankMetrics} />
+            <MetricGrid m={bankMetrics} t={t} />
           </div>
 
           {/* Status breakdown bar */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Account Status Breakdown</h3>
+            <h3 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">{t.accountStatusBreakdown}</h3>
             {[
-              { label: "Active",  value: bankMetrics.active,  color: "bg-green-500"  },
-              { label: "Frozen",  value: bankMetrics.frozen,  color: "bg-red-400"    },
-              { label: "Dormant", value: bankMetrics.dormant, color: "bg-yellow-400" },
-              { label: "Closed",  value: bankMetrics.closed,  color: "bg-gray-300"   },
+              { label: t.metricActive,  value: bankMetrics.active,  color: "bg-green-500"  },
+              { label: t.metricFrozen,  value: bankMetrics.frozen,  color: "bg-red-400"    },
+              { label: t.metricDormant, value: bankMetrics.dormant, color: "bg-yellow-400" },
+              { label: t.closed,        value: bankMetrics.closed,  color: "bg-gray-300"   },
             ].map(row => {
               const pct = bankMetrics.total ? Math.round((row.value / bankMetrics.total) * 100) : 0;
               return (
@@ -173,14 +171,14 @@ export default function Reports() {
           {/* District summary table */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-800">Districts Summary</h3>
-              <p className="text-xs text-gray-400 mt-0.5">{DISTRICTS.length} districts / area offices</p>
+              <h3 className="font-semibold text-gray-800">{t.districtsSummary}</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{DISTRICTS.length} {t.districtAreas}</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    {["District / Area Office", "Branches", "Total", "Active", "Frozen", "Dormant", "Lien"].map(h => (
+                    {[t.tableDistrict, t.tableBranches, t.tableTotal, t.tableActive, t.tableFrozen, t.tableDormant, t.tableLien].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -205,7 +203,7 @@ export default function Reports() {
                 </tbody>
                 <tfoot>
                   <tr className="bg-gray-50 border-t-2 border-gray-200">
-                    <td className="px-4 py-3 font-bold text-gray-800">TOTAL</td>
+                    <td className="px-4 py-3 font-bold text-gray-800">{t.tableTotal2}</td>
                     <td className="px-4 py-3 font-mono font-bold text-gray-800">{BUNNA_BRANCHES.length}</td>
                     <td className="px-4 py-3 font-mono font-bold text-gray-800">{bankMetrics.total}</td>
                     <td className="px-4 py-3 font-mono font-bold text-green-700">{bankMetrics.active}</td>
@@ -228,7 +226,7 @@ export default function Reports() {
             <HiUsers className="text-gray-400 w-4 h-4 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search district name (e.g. Dessie, Bahir Dar...)"
+              placeholder={t.districtSearchPlaceholder}
               value={districtSearch}
               onChange={e => setDistrictSearch(e.target.value)}
               className="flex-1 py-3 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
@@ -245,7 +243,7 @@ export default function Reports() {
             );
             if (filtered.length === 0) return (
               <div className="text-center py-16 text-gray-400 text-sm">
-                No district found for "<span className="text-gray-600">{districtSearch}</span>"
+                {t.noDistrictFound} "<span className="text-gray-600">{districtSearch}</span>"
               </div>
             );
             return filtered.map(dist => {
@@ -260,14 +258,14 @@ export default function Reports() {
                       </div>
                       <div>
                         <div className="font-semibold text-gray-800 text-sm">{dist}</div>
-                        <div className="text-xs text-gray-400">{m.total} customers in system</div>
+                        <div className="text-xs text-gray-400">{m.total} {t.customersInSystem}</div>
                       </div>
                     </div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
                       m.active > 0 ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"
-                    }`}>{m.active} active</span>
+                    }`}>{m.active} {t.metricActive}</span>
                   </div>
-                  <MetricGrid m={m} compact />
+                  <MetricGrid m={m} compact t={t} />
                 </div>
               );
             });
@@ -283,7 +281,7 @@ export default function Reports() {
             <HiUsers className="text-gray-400 w-4 h-4 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search branch name, SOL ID or district (e.g. Dejen, 139...)"
+              placeholder={t.branchSearchPlaceholder}
               value={branchSearch}
               onChange={e => setBranchSearch(e.target.value)}
               className="flex-1 py-3 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
@@ -308,14 +306,14 @@ export default function Reports() {
             if (!branchSearch) return (
               <div className="text-center py-16 text-gray-400">
                 <HiBuildingOffice2 className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                <p className="text-sm font-medium text-gray-500">Search for a branch</p>
-                <p className="text-xs mt-1">Enter branch name, SOL ID, or district</p>
+                <p className="text-sm font-medium text-gray-500">{t.searchBranchPrompt}</p>
+                <p className="text-xs mt-1">{t.searchBranchSub}</p>
               </div>
             );
 
             if (filtered.length === 0) return (
               <div className="text-center py-16 text-gray-400 text-sm">
-                No branch found for "<span className="text-gray-600">{branchSearch}</span>"
+                {t.noBranchFound} "<span className="text-gray-600">{branchSearch}</span>"
               </div>
             );
 
@@ -336,9 +334,9 @@ export default function Reports() {
                         <div className="text-xs text-gray-400 font-mono">SOL {branch.solId} · {branch.district}</div>
                       </div>
                     </div>
-                    <span className="text-xs text-gray-400 font-mono">{m.total} in system</span>
+                    <span className="text-xs text-gray-400 font-mono">{m.total} {t.inSystem}</span>
                   </div>
-                  <MetricGrid m={m} compact />
+                  <MetricGrid m={m} compact t={t} />
                 </div>
               );
             });
