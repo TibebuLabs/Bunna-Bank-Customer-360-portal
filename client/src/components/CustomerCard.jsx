@@ -1,4 +1,5 @@
 import { HiBuildingOffice2, HiCreditCard, HiUser, HiPhone, HiEnvelope, HiIdentification, HiCalendar, HiLanguage } from "react-icons/hi2";
+import { useLang } from "../i18n/LanguageContext";
 
 // Map Oracle ACCT_STATUS codes to labels
 const STATUS_MAP = {
@@ -21,8 +22,13 @@ const LANG_MAP = { AMH: "Amharic", ENG: "English", ORM: "Oromiffa", TIG: "Tigrin
 const CONST_MAP = { SINGL: "Individual", JNTLY: "Joint", CORP: "Corporate", TRUST: "Trust" };
 
 export default function CustomerCard({ customer: c, isSelected, onClick }) {
+  const { t } = useLang();
   const status = STATUS_MAP[c.ACCT_STATUS] || STATUS_MAP.C;
   const schemeName = SCHEME_MAP[c.SCHM_TYPE] || c.SCHM_TYPE;
+
+  const statusLabel = {
+    A: t.active, F: t.frozen, D: t.dormant, C: t.closed,
+  };
 
   const fmt = (n) => Number(n || 0).toLocaleString("en-ET", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -45,49 +51,44 @@ export default function CustomerCard({ customer: c, isSelected, onClick }) {
         </div>
         <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${status.bg} ${status.text}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-          {status.label}
+          {statusLabel[c.ACCT_STATUS] || status.label}
         </span>
       </div>
 
       <div className="p-5">
-        {/* Account Number — most important field */}
         <div className="bg-[#fdf8f5] border border-amber-100 rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <HiCreditCard className="w-4 h-4 text-[#3d1209]" />
-            <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account No.</span>
+            <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">{t.accountNo}</span>
           </div>
           <span className="font-mono font-bold text-[#3d1209] text-base tracking-wider">{c.FORACID}</span>
         </div>
 
-        {/* Balance section */}
         <div className="grid grid-cols-3 gap-2 mb-4">
-          <BalanceBox label="Clear Balance" value={fmt(c.CLRBAL)} highlight />
-          <BalanceBox label="Lien Amount"   value={fmt(c.LIEN_AMT)} />
-          <BalanceBox label="Unclear Bal."  value={fmt(c.UNCLRBAL)} />
+          <BalanceBox label={t.clearBalance} value={fmt(c.CLRBAL)} highlight />
+          <BalanceBox label={t.lienAmount}   value={fmt(c.LIEN_AMT)} />
+          <BalanceBox label={t.unclearBal}   value={fmt(c.UNCLRBAL)} />
         </div>
 
-        {/* Account info grid */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4">
-          <InfoRow icon={<HiBuildingOffice2 className="w-3.5 h-3.5" />} label="Branch SOL" value={c.SOL_ID} mono />
-          <InfoRow icon={<HiCreditCard className="w-3.5 h-3.5" />}      label="Product"    value={`${schemeName} (${c.SCHM_CODE})`} />
-          <InfoRow icon={<HiCalendar className="w-3.5 h-3.5" />}        label="Open Date"  value={c.ACCT_OPN_DATE} />
-          <InfoRow icon={<HiCalendar className="w-3.5 h-3.5" />}        label="Last Txn"   value={c.LAST_TRAN_DATE || "—"} />
-          <InfoRow icon={<HiUser className="w-3.5 h-3.5" />}            label="Short Name" value={c.SHORT_NAME} mono />
-          <InfoRow icon={<HiLanguage className="w-3.5 h-3.5" />}        label="Language"   value={LANG_MAP[c.LANGUAGE] || c.LANGUAGE} />
-          <InfoRow icon={<HiIdentification className="w-3.5 h-3.5" />}  label="Constitution" value={CONST_MAP[c.CUST_CONST] || c.CUST_CONST} />
-          <InfoRow icon={<HiCreditCard className="w-3.5 h-3.5" />}      label="Currency"   value={c.CURR_CODE} />
+          <InfoRow icon={<HiBuildingOffice2 className="w-3.5 h-3.5" />} label={t.branchSol}    value={c.SOL_ID} mono />
+          <InfoRow icon={<HiCreditCard className="w-3.5 h-3.5" />}      label={t.product}      value={`${schemeName} (${c.SCHM_CODE})`} />
+          <InfoRow icon={<HiCalendar className="w-3.5 h-3.5" />}        label={t.openDate}     value={c.ACCT_OPN_DATE} />
+          <InfoRow icon={<HiCalendar className="w-3.5 h-3.5" />}        label={t.lastTxn}      value={c.LAST_TRAN_DATE || "—"} />
+          <InfoRow icon={<HiUser className="w-3.5 h-3.5" />}            label={t.shortName}    value={c.SHORT_NAME} mono />
+          <InfoRow icon={<HiLanguage className="w-3.5 h-3.5" />}        label={t.language}     value={LANG_MAP[c.LANGUAGE] || c.LANGUAGE} />
+          <InfoRow icon={<HiIdentification className="w-3.5 h-3.5" />}  label={t.constitution} value={CONST_MAP[c.CUST_CONST] || c.CUST_CONST} />
+          <InfoRow icon={<HiCreditCard className="w-3.5 h-3.5" />}      label={t.currency}     value={c.CURR_CODE} />
         </div>
 
-        {/* Totals row */}
         <div className="grid grid-cols-2 gap-2 mb-4 pt-3 border-t border-gray-100">
-          <TotalBox label="Total Deposits"     value={fmt(c.TOT_DEPOSIT_AMT)} />
-          <TotalBox label="Total Withdrawals"  value={fmt(c.TOT_WITHDRWL_AMT)} />
+          <TotalBox label={t.totalDeposits}    value={fmt(c.TOT_DEPOSIT_AMT)} />
+          <TotalBox label={t.totalWithdrawals} value={fmt(c.TOT_WITHDRWL_AMT)} />
         </div>
 
-        {/* Sanctioned limit */}
         {c.SANCT_LIM > 0 && (
           <div className="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 mb-4">
-            <span className="text-xs text-gray-500 font-medium">Sanctioned Limit</span>
+            <span className="text-xs text-gray-500 font-medium">{t.sanctionedLimit}</span>
             <span className="font-mono font-semibold text-gray-700 text-sm">ETB {fmt(c.SANCT_LIM)}</span>
           </div>
         )}
@@ -117,14 +118,14 @@ export default function CustomerCard({ customer: c, isSelected, onClick }) {
         {/* Signature */}
         {c.SIGNATURE_IMAGE && (
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">Signature</p>
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-2">{t.signature}</p>
             <img src={c.SIGNATURE_IMAGE} alt="Signature"
               className="w-full max-h-14 object-contain object-left bg-white rounded-lg border border-gray-100 p-1" />
           </div>
         )}
 
         {isSelected && (
-          <div className="mt-3 text-center text-xs text-[#3d1209] font-semibold">▼ Viewing Transactions</div>
+          <div className="mt-3 text-center text-xs text-[#3d1209] font-semibold">{t.viewingTransactions}</div>
         )}
       </div>
     </div>

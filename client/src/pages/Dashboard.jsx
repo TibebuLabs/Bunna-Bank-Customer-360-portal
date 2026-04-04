@@ -1,21 +1,28 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  HiMagnifyingGlass, HiBuildingLibrary, HiArrowRightOnRectangle,
-  HiChartBar, HiCodeBracket, HiUserCircle
+  HiMagnifyingGlass, HiBuildingLibrary,
+  HiChartBar, HiCodeBracket, HiUserCircle, HiCpuChip
 } from "react-icons/hi2";
 import CustomerCard from "../components/CustomerCard";
 import TransactionTable from "../components/TransactionTable";
 import Reports from "./Reports";
 import Branches from "./Branches";
+import Profile from "./Profile";
+import Settings from "./Settings";
+import UserMenu from "../components/UserMenu";
+import ITSupport from "./ITSupport";
+import { useLang } from "../i18n/LanguageContext";
 import { MOCK_CUSTOMERS, MOCK_TRANSACTIONS } from "../data/mockData";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { t } = useLang();
   const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Demo Staff","role":"officer"}');
   const inputRef = useRef(null);
 
   const [activePage, setActivePage] = useState("search");
+  const [userMenuPage, setUserMenuPage] = useState(null); // "profile" | "settings" | "notifications" | null
   const [query, setQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [customers, setCustomers] = useState([]);
@@ -104,49 +111,75 @@ export default function Dashboard() {
             <HiBuildingLibrary className="text-white w-5 h-5" />
           </div>
           <div>
-            <div className="text-white font-bold text-base leading-tight">Bunna Bank</div>
-            <div className="text-amber-300/70 text-xs">Customer 360</div>
+            <div className="text-white font-bold text-base leading-tight">{t.appName}</div>
+            <div className="text-amber-300/70 text-xs">{t.appSub}</div>
           </div>
         </div>
 
         <nav className="flex-1 px-3 py-5 space-y-1">
-          <NavItem icon={<HiMagnifyingGlass className="w-4 h-4" />} label="Customer Search"
-            active={activePage === "search"} onClick={() => setActivePage("search")} />
-          <NavItem icon={<HiChartBar className="w-4 h-4" />} label="Reports"
-            active={activePage === "reports"} onClick={() => setActivePage("reports")} />
-          <NavItem icon={<HiCodeBracket className="w-4 h-4" />} label="Branches"
-            active={activePage === "branches"} onClick={() => setActivePage("branches")} />
+          <NavItem icon={<HiMagnifyingGlass className="w-4 h-4" />} label={t.navSearch}
+            active={activePage === "search"} onClick={() => { setActivePage("search"); setUserMenuPage(null); }} />
+          <NavItem icon={<HiChartBar className="w-4 h-4" />} label={t.navReports}
+            active={activePage === "reports"} onClick={() => { setActivePage("reports"); setUserMenuPage(null); }} />
+          <NavItem icon={<HiCodeBracket className="w-4 h-4" />} label={t.navBranches}
+            active={activePage === "branches"} onClick={() => { setActivePage("branches"); setUserMenuPage(null); }} />
+          <NavItem icon={<HiCpuChip className="w-4 h-4" />} label={t.navITSupport}
+            active={activePage === "itsupport"} onClick={() => { setActivePage("itsupport"); setUserMenuPage(null); }} />
         </nav>
 
-        <div className="px-3 pb-5">
-          <div className="flex items-center gap-3 bg-white/10 rounded-xl px-3 py-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
-              {user.fullName?.[0] || "U"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-white text-sm font-semibold truncate">{user.fullName}</div>
-              <div className="text-amber-300/70 text-xs capitalize">{user.role}</div>
-            </div>
-            <button onClick={handleLogout} title="Logout" className="text-white/40 hover:text-red-400 transition-colors p-1">
-              <HiArrowRightOnRectangle className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+
       </aside>
 
       {/* Main */}
       <main className="ml-64 flex-1 p-8">
 
-        {activePage === "search" && (
+        {/* Top bar with user menu */}
+        <div className="flex items-center justify-end mb-6">
+          <UserMenu user={user} onLogout={handleLogout} onNavigate={(page) => { setUserMenuPage(page); }} />
+        </div>
+
+        {/* User menu pages */}
+        {userMenuPage === "profile" && (
+          <>
+            <div className="flex items-center gap-3 mb-6">
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <span className="text-gray-300">/</span>
+              <span className="text-sm font-semibold text-gray-700">{t.myProfile}</span>
+            </div>
+            <Profile user={user} />
+          </>
+        )}
+        {userMenuPage === "settings" && (
+          <>
+            <div className="flex items-center gap-3 mb-6">
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <span className="text-gray-300">/</span>
+              <span className="text-sm font-semibold text-gray-700">{t.settings}</span>
+            </div>
+            <Settings />
+          </>
+        )}
+        {userMenuPage === "notifications" && (
+          <>
+            <div className="flex items-center gap-3 mb-6">
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <span className="text-gray-300">/</span>
+              <span className="text-sm font-semibold text-gray-700">{t.notifications}</span>
+            </div>
+            <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-10 text-center text-gray-400">
+              <span className="text-5xl">🔔</span>
+              <p className="mt-4 font-medium text-gray-600">{t.noNotifications}</p>
+              <p className="text-sm mt-1">{t.allCaughtUp}</p>
+            </div>
+          </>
+        )}
+
+        {!userMenuPage && activePage === "search" && (
           <>
             <div className="flex items-start justify-between mb-8">
               <div>
-                <h1 className="text-2xl font-bold text-gray-800">Customer Lookup</h1>
-                <p className="text-gray-500 text-sm mt-1">Search by Account Number, Phone Number or Name</p>
-              </div>
-              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 px-4 py-2 rounded-full text-xs font-medium">
-                <span className="w-2 h-2 bg-amber-500 rounded-full" />
-                Demo Mode
+                <h1 className="text-2xl font-bold text-gray-800">{t.customerLookup}</h1>
+                <p className="text-gray-500 text-sm mt-1">{t.searchSubtitle}</p>
               </div>
             </div>
 
@@ -158,7 +191,7 @@ export default function Dashboard() {
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder="Enter Account No., Phone No. or Name"
+                    placeholder={t.searchPlaceholder}
                     value={query}
                     onChange={handleInputChange}
                     onFocus={() => query.trim() && setShowDropdown(true)}
@@ -206,8 +239,8 @@ export default function Dashboard() {
               <button type="submit" disabled={loading}
                 className="bg-[#3d1209] hover:bg-[#5a1b0e] text-white font-semibold px-7 rounded-xl text-sm transition-colors disabled:opacity-60 flex items-center gap-2">
                 {loading
-                  ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Searching...</>
-                  : "Search"}
+                  ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{t.searching}</>
+                  : t.search}
               </button>
             </form>
 
@@ -215,25 +248,23 @@ export default function Dashboard() {
             {!searched && !loading && (
               <div className="text-center py-20 text-gray-400">
                 <HiMagnifyingGlass className="w-14 h-14 mx-auto mb-4 text-gray-300" />
-                <p className="text-base font-medium text-gray-500">Search for a customer</p>
-                <p className="text-sm mt-1">Enter an account number, phone number, or name above</p>
+                <p className="text-base font-medium text-gray-500">{t.searchPromptTitle}</p>
+                <p className="text-sm mt-1">{t.searchPromptSub}</p>
               </div>
             )}
 
-            {/* No results */}
             {searched && !loading && customers.length === 0 && (
               <div className="text-center py-20 text-gray-400">
                 <HiUserCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                <p className="text-base">No customer found for "<span className="text-gray-600 font-medium">{query}</span>"</p>
-                <p className="text-sm mt-2">Try a different account number, phone, or name</p>
+                <p className="text-base">{t.noCustomerFound} "<span className="text-gray-600 font-medium">{query}</span>"</p>
+                <p className="text-sm mt-2">{t.tryDifferent}</p>
               </div>
             )}
 
-            {/* Results — only show after a search was submitted */}
             {searched && customers.length > 0 && (
               <div className="mb-8">
                 {customers.length > 1 && (
-                  <p className="text-sm text-gray-500 mb-4">{customers.length} accounts found — click a card to view transactions</p>
+                  <p className="text-sm text-gray-500 mb-4">{customers.length} {t.accountsFound}</p>
                 )}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                   {customers.map((c, i) => (
@@ -251,8 +282,9 @@ export default function Dashboard() {
           </>
         )}
 
-        {activePage === "reports"  && <Reports />}
-        {activePage === "branches" && <Branches />}
+        {!userMenuPage && activePage === "reports"  && <Reports />}
+        {!userMenuPage && activePage === "branches" && <Branches />}
+        {!userMenuPage && activePage === "itsupport" && <ITSupport />}
       </main>
     </div>
   );

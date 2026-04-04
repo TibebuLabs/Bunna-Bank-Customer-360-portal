@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLang } from "../i18n/LanguageContext";
 import { HiMagnifyingGlass, HiMapPin, HiPhone, HiUser, HiBuildingOffice2, HiXMark } from "react-icons/hi2";
 import { BUNNA_BRANCHES } from "../data/branchData";
 
@@ -6,6 +7,7 @@ const REGIONS = ["All", ...Array.from(new Set(BUNNA_BRANCHES.map(b => b.region))
 const DISTRICTS = ["All", ...Array.from(new Set(BUNNA_BRANCHES.map(b => b.district))).sort()];
 
 export default function Branches() {
+  const { t } = useLang();
   const [search, setSearch] = useState("");
   const [regionFilter, setRegionFilter] = useState("All");
   const [districtFilter, setDistrictFilter] = useState("All");
@@ -27,7 +29,7 @@ export default function Branches() {
   });
 
   if (selected) {
-    return <BranchDetail branch={selected} onBack={() => setSelected(null)} />;
+    return <BranchDetail branch={selected} onBack={() => setSelected(null)} t={t} />;
   }
 
   return (
@@ -35,8 +37,8 @@ export default function Branches() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Bunna Bank Branches</h1>
-          <p className="text-gray-500 text-sm mt-1">{BUNNA_BRANCHES.length} branches · showing {filtered.length}</p>
+          <h1 className="text-2xl font-bold text-gray-800">{t.branchesTitle}</h1>
+          <p className="text-gray-500 text-sm mt-1">{BUNNA_BRANCHES.length} {t.branchesSubtitle} {filtered.length}</p>
         </div>
       </div>
 
@@ -46,7 +48,7 @@ export default function Branches() {
           <HiMagnifyingGlass className="text-gray-400 w-4 h-4 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Search by branch name, code, manager, phone, SOL ID..."
+            placeholder={t.branchSearchPlaceholder2}
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="flex-1 py-3 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
@@ -71,7 +73,7 @@ export default function Branches() {
       {filtered.length === 0 && (
         <div className="text-center py-20 text-gray-400">
           <HiBuildingOffice2 className="w-14 h-14 mx-auto mb-4 text-gray-300" />
-          <p className="text-base">No branch found for "<span className="text-gray-600 font-medium">{search}</span>"</p>
+          <p className="text-base">{t.noBranchFoundFor} "<span className="text-gray-600 font-medium">{search}</span>"</p>
         </div>
       )}
 
@@ -82,7 +84,7 @@ export default function Branches() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {["SOL ID", "Branch Name", "Amharic", "Manager", "Phone", "District", "Region", ""].map(h => (
+                  {[t.solId, t.branchName, t.amharic, t.manager, t.phone, t.district, t.region, ""].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -100,7 +102,7 @@ export default function Branches() {
                     <td className="px-4 py-3">
                       <span className="bg-amber-50 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">{b.region}</span>
                     </td>
-                    <td className="px-4 py-3 text-[#3d1209] text-xs font-semibold whitespace-nowrap">View →</td>
+                    <td className="px-4 py-3 text-[#3d1209] text-xs font-semibold whitespace-nowrap">{t.view}</td>
                   </tr>
                 ))}
               </tbody>
@@ -112,12 +114,12 @@ export default function Branches() {
   );
 }
 
-function BranchDetail({ branch: b, onBack }) {
+function BranchDetail({ branch: b, onBack, t }) {
   return (
     <div>
       <button onClick={onBack}
         className="flex items-center gap-2 text-sm text-gray-500 hover:text-[#3d1209] transition-colors font-medium mb-6">
-        ← Back to Branches
+        {t.backToBranches}
       </button>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-5">
@@ -136,13 +138,13 @@ function BranchDetail({ branch: b, onBack }) {
         </div>
 
         <div className="grid grid-cols-2 xl:grid-cols-3 gap-5">
-          <InfoItem label="Branch Manager" value={b.manager} icon={<HiUser className="w-4 h-4 text-[#3d1209]" />} />
-          <InfoItem label="Manager Phone" value={b.managerPhone} icon={<HiPhone className="w-4 h-4 text-[#3d1209]" />} />
-          <InfoItem label="Branch Phone" value={b.phone || "—"} icon={<HiPhone className="w-4 h-4 text-[#3d1209]" />} />
-          {b.altPhone && <InfoItem label="Alt. Phone" value={b.altPhone} icon={<HiPhone className="w-4 h-4 text-gray-400" />} />}
-          {b.csm && <InfoItem label="CSM / Officer" value={`${b.csm} ${b.csmPhone ? `· ${b.csmPhone}` : ""}`} icon={<HiUser className="w-4 h-4 text-gray-400" />} />}
-          <InfoItem label="District" value={b.district} icon={<HiBuildingOffice2 className="w-4 h-4 text-gray-400" />} />
-          <InfoItem label="Region" value={b.region} icon={<HiMapPin className="w-4 h-4 text-gray-400" />} />
+          <InfoItem label={t.branchManager} value={b.manager} icon={<HiUser className="w-4 h-4 text-[#3d1209]" />} />
+          <InfoItem label={t.managerPhone} value={b.managerPhone} icon={<HiPhone className="w-4 h-4 text-[#3d1209]" />} />
+          <InfoItem label={t.branchPhone} value={b.phone || "—"} icon={<HiPhone className="w-4 h-4 text-[#3d1209]" />} />
+          {b.altPhone && <InfoItem label={t.altPhone} value={b.altPhone} icon={<HiPhone className="w-4 h-4 text-gray-400" />} />}
+          {b.csm && <InfoItem label={t.csmOfficer} value={`${b.csm} ${b.csmPhone ? `· ${b.csmPhone}` : ""}`} icon={<HiUser className="w-4 h-4 text-gray-400" />} />}
+          <InfoItem label={t.district} value={b.district} icon={<HiBuildingOffice2 className="w-4 h-4 text-gray-400" />} />
+          <InfoItem label={t.region} value={b.region} icon={<HiMapPin className="w-4 h-4 text-gray-400" />} />
           <InfoItem label="Location" value={b.location} icon={<HiMapPin className="w-4 h-4 text-[#3d1209]" />} />
         </div>
       </div>
