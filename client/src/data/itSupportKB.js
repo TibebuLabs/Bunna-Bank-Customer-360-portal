@@ -1,6 +1,22 @@
-// Mock IT Support Knowledge Base — English & Amharic
-// Each entry has keywords (matched against user input) and a response per language.
+// itSupportKB.js - Complete IT Support Knowledge Base with Finacle Integration
 
+// Import Finacle KB (assuming it's exported as an array)
+import { FINACLE_KB } from "./finacleKB";
+
+// ======================= MAIN KNOWLEDGE BASE =======================
+// Ensure FINACLE_KB is an array, if not, handle gracefully
+const getFinacleEntries = () => {
+  if (Array.isArray(FINACLE_KB)) {
+    return FINACLE_KB;
+  }
+  if (FINACLE_KB && typeof FINACLE_KB === 'object') {
+    // If it's an object, convert to array of entries
+    return Object.values(FINACLE_KB);
+  }
+  return [];
+};
+
+// Main KB array
 export const KB = [
   {
     keywords: ["password", "reset", "forgot", "locked", "lockout", "lock out", "ፓስወርድ", "የይለፍ ቃል", "ተቆልፏል", "ረሳሁ"],
@@ -11,7 +27,7 @@ export const KB = [
 • To reset your Windows login password:
   1. Press **Ctrl + Alt + Del** → click "Change a password"
   2. Enter your old password, then the new one (min. 8 chars, 1 uppercase, 1 number)
-• For Core Banking (Flexcube/T24) password reset:
+• For Core Banking (Finacle) password reset:
   1. Contact your **Branch IT Coordinator** or call the Help Desk: **0115-XXXXXX**
   2. They will reset it after verifying your staff ID.
 • If locked out more than 3 times, open a ticket in the **ITSM portal**.
@@ -25,7 +41,7 @@ export const KB = [
 • የዊንዶውስ ፓስወርድ ለመቀየር:
   1. **Ctrl + Alt + Del** ይጫኑ → "Change a password" ይምረጡ
   2. የቀድሞ ፓስወርድዎን ያስገቡ፣ ከዚያ አዲሱን (ቢያንስ 8 ቁምፊ፣ 1 ትልቅ ፊደል፣ 1 ቁጥር)
-• ለ Core Banking (Flexcube/T24) ፓስወርድ ዳግም ማስጀመር:
+• ለ Core Banking (Finacle) ፓስወርድ ዳግም ማስጀመር:
   1. **የቅርንጫፍ አይቲ አስተባባሪ**ዎን ያነጋግሩ ወይም Help Desk ይደውሉ: **0115-XXXXXX**
   2. የሰራተኛ መታወቂያዎን ካረጋገጡ በኋላ ይቀይሩልዎታል።
 • ከ3 ጊዜ በላይ ከተቆለፈ **ITSM portal** ላይ ቲኬት ይክፈቱ።
@@ -33,8 +49,8 @@ export const KB = [
 🔒 የደህንነት ማሳሰቢያ: ምስክርነቶችዎን በስልክ ወይም ኢሜይል አይስጡ።`
   },
   {
-    keywords: ["flexcube", "t24", "core banking", "cbs", "cannot connect", "connection", "ኮር ባንኪንግ", "ግንኙነት", "አይገናኝም"],
-    en: `**Core Banking (Flexcube / T24) Connectivity Issue**
+    keywords: ["flexcube", "t24", "finacle", "core banking", "cbs", "cannot connect", "connection", "ኮር ባንኪንግ", "ግንኙነት", "አይገናኝም"],
+    en: `**Core Banking (Finacle) Connectivity Issue**
 
 • First, check your **internet/LAN connection** — open a browser and test any website.
 • Clear your browser cache:
@@ -48,7 +64,7 @@ export const KB = [
   - Error message screenshot
   - Time the issue started`,
 
-    am: `**ኮር ባንኪንግ (Flexcube / T24) የግንኙነት ችግር**
+    am: `**ኮር ባንኪንግ (Finacle) የግንኙነት ችግር**
 
 • መጀመሪያ **የኢንተርኔት/LAN ግንኙነት**ዎን ያረጋግጡ — ብሮውዘር ከፍተው ድረ-ገጽ ይሞክሩ።
 • የብሮውዘር ካሽ ያጽዱ:
@@ -207,48 +223,89 @@ export const KB = [
 6. Help Desk በ**SLA ጊዜ** ምላሽ ይሰጣል (ወሳኝ: 1ሰዓት፣ ከፍተኛ: 4ሰዓት፣ መካከለኛ: 8ሰዓት)።
 
 📞 Help Desk ቀጥታ መስመር: **0115-XXXXXX** (ከጠዋቱ 2 — ከምሽቱ 12፣ ሰኞ–ቅዳሜ)`
-  },
+  }
 ];
+
+// ======================= HELPER FUNCTIONS =======================
 
 // Detect language: if input contains Ethiopic characters → Amharic
 export function detectLang(text) {
+  if (!text || typeof text !== 'string') return 'en';
   return /[\u1200-\u137F]/.test(text) ? "am" : "en";
+}
+
+// Get all KB entries (main + Finacle)
+function getAllEntries() {
+  const finacleEntries = getFinacleEntries();
+  return [...KB, ...finacleEntries];
 }
 
 // Find best matching KB entry
 export function findAnswer(input) {
-  const lower = input.toLowerCase();
+  if (!input || typeof input !== 'string') {
+    return { answer: null, lang: 'en' };
+  }
+  
+  const lower = input.toLowerCase().trim();
   const lang = detectLang(input);
-  for (const entry of KB) {
-    if (entry.keywords.some(k => lower.includes(k.toLowerCase()))) {
-      return { answer: entry[lang], lang };
+  const allEntries = getAllEntries();
+  
+  // First try exact keyword matches
+  for (const entry of allEntries) {
+    if (entry.keywords && Array.isArray(entry.keywords)) {
+      if (entry.keywords.some(k => lower.includes(k.toLowerCase()))) {
+        const answer = entry[lang] || entry.en;
+        if (answer) {
+          return { answer, lang };
+        }
+      }
     }
   }
+  
+  // If no match found
   return { answer: null, lang };
 }
 
+// ======================= FALLBACK RESPONSES =======================
 export const FALLBACK = {
-  en: `I'm sorry, I couldn't find a specific answer for that. Here are some things I can help with:
+  en: `I couldn't find a specific answer for that. Here are topics I can help with:
 
+**IT Support:**
 • Password reset & account lockout
-• Core Banking (Flexcube/T24) connectivity
-• Printer troubleshooting
-• VPN & remote access
-• Network / internet issues
-• Slow or hanging computer
+• Core Banking connectivity issues
+• Printer, VPN & network troubleshooting
 • How to open an ITSM ticket
 
-Please try rephrasing your question, or call the Help Desk: **0115-XXXXXX**`,
+**Finacle (Account Management):**
+• Open/verify saving, current, OD, loan accounts
+• Freeze/unfreeze account (HAFSM)
+• Mark/unmark lien (HALM)
+• Interest not collecting (HACM)
+• Disbursement errors
+• Print passbook/statement (HPBP/HPSP)
+• Finacle menu quick reference
 
-  am: `ይቅርታ፣ ለዚህ ጥያቄ ትክክለኛ መልስ ማግኘት አልቻልኩም። እነዚህን ልርዳዎ እችላለሁ:
+Try rephrasing your question, or call Help Desk: **0115-XXXXXX**`,
 
-• ፓስወርድ ዳግም ማስጀመር እና መለያ መቆለፍ
-• ኮር ባንኪንግ (Flexcube/T24) ግንኙነት
-• ማተሚያ ችግር
-• VPN እና ርቀት መዳረሻ
-• ኔትወርክ / ኢንተርኔት ችግሮች
-• ዝግ ወይም የሚቀዘቅዝ ኮምፒዩተር
-• ITSM ቲኬት እንዴት ይከፈታል
+  am: `ለዚህ ጥያቄ ትክክለኛ መልስ ማግኘት አልቻልኩም። እነዚህን ልረዳዎ እችላለሁ:
 
-ጥያቄዎን ዳግም ይሞክሩ፣ ወይም Help Desk ይደውሉ: **0115-XXXXXX**`
+**አይቲ ድጋፍ:**
+• ፓስወርድ ዳግም ማስጀመር
+• ኮር ባንኪንግ ግንኙነት ችግሮች
+• ማተሚያ፣ VPN እና ኔትወርክ
+• ITSM ቲኬት
+
+**ፊናክል (አካውንት አስተዳደር):**
+• ቁጠባ፣ ካረንት፣ OD፣ ብድር አካውንት መክፈት/ማረጋገጥ
+• አካውንት ማቀዝቀዝ/ማቅለጥ (HAFSM)
+• Lien ምልክት (HALM)
+• ወለድ አያከማችም (HACM)
+• Disbursement ስህተቶች
+• ፓስቡክ/ስቴትመንት ማተም
+• የፊናክል ሜኑ ማጣቀሻ
+
+እባክዎ ጥያቄዎን በተለየ መንገድ ይጠይቁ፣ ወይም Help Desk ይደውሉ: **0115-XXXXXX**`
 };
+
+// ======================= EXPORTS =======================
+export default { KB, detectLang, findAnswer, FALLBACK };

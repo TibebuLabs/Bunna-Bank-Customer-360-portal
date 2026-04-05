@@ -3,26 +3,143 @@ import {
   HiPaperAirplane, HiCpuChip, HiUser, HiSparkles,
   HiKey, HiXMark, HiCheckCircle, HiGlobeAlt,
 } from "react-icons/hi2";
-import { findAnswer, detectLang, FALLBACK } from "../data/itSupportKB";
+import { findAnswer, FALLBACK } from "../data/itSupportKB";
 
 // ── Gemini REST helper ────────────────────────────────────────────────────────
-// Models to try in order — fallback chain
 const GEMINI_MODELS = [
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
-  "gemini-1.0-pro",
+  "gemini-2.0-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash-8b-latest",
 ];
 
-async function askGemini(apiKey, userMsg, lang, modelIndex = 0) {
-  const systemPrompt = lang === "am"
-    ? `አንተ የቡና ባንክ አይቲ ድጋፍ ረዳት ነህ። ለባንክ ሰራተኞች የፊናክል (Finacle) ኮር ባንኪንግ ሲስተም፣ አይቲ ችግሮች፣ እና የባንክ ስርዓቶችን በተመለከተ ምክር ስጥ። ሁልጊዜ በአማርኛ ምላሽ ስጥ። ምላሾችህ ግልጽ፣ ደረጃ-በ-ደረጃ እና ሙያዊ ይሁኑ። ፓስወርድ ፈጽሞ አትጠይቅ።`
-    : `You are the Bunna Bank IT Support Assistant. Help bank staff with Finacle Core Banking system, IT issues, and banking systems. Always respond in English. Be clear, step-by-step, and professional. Never ask for passwords. Keep answers concise and actionable.`;
+// Fetch available models from the API and pick the best supported one
+async function getAvailableModel(apiKey) {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    if (!res.ok) return GEMINI_MODELS[0];
+    const data = await res.json();
+    const names = (data.models || [])
+      .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+      .map(m => m.name.replace("models/", ""));
+    // Prefer in order
+    for (const preferred of GEMINI_MODELS) {
+      if (names.includes(preferred)) return preferred;
+    }
+    // Fallback to first available flash model
+    const flash = names.find(n => n.includes("flash"));
+    return flash || names[0] || GEMINI_MODELS[0];
+  } catch {
+    return GEMINI_MODELS[0];
+  }
+}
 
-  const model = GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0];
+// ── Rich system prompt with full Buna Bank + Finacle context ─────────────────
+const SYSTEM_PROMPT_EN = `You are an expert IT Support Assistant for Buna Bank (BIB), Ethiopia. You specialize in:
+
+1. FINACLE CORE BANKING SYSTEM (the bank uses Finacle by Infosys):
+   - Account opening menus: HOAACSB (Saving/SBA), HOAACCA (Current/CAA), HOAACOD (Overdraft/ODA), HOAACTD (Time Deposit/TDA), HOAACLA (Term Loan/LAA)
+   - Verification menus: HOAACVSB, HOAACVCA, HOAACVOD, HOAACVTD, HOAACVLA
+   - Operations: HACM (modify), HCAAC (close), HAFSM (freeze/unfreeze), HALM (lien), HACLINQ (ledger), HACCBAL (balances), HACCDET (details)
+   - Loan menus: HACLHM (OD limit), HCLM (collateral), HSCLM (link collateral), HLADISB (disburse), HPAYOFF (payoff), HLARA (reschedule)
+   - Interest menus: HINTTM (OD interest), HLINTTM (loan interest), HACINT (force interest), HAITINQ (interest inquiry)
+   - Reports: HPBP (passbook), HPSP (statement), HINTCERT (interest cert), HAINTRPT (interest report)
+   - Account search: HACS, HACCDET
+   - Name change: HAALM, HCCA (change CIF)
+   - Scheme change: HACXFRSC, HTACBSH
+   - Collateral: HCLM (lodge), HSCLM (link/unlink)
+   - OD renewal: HACLHM
+   - Loan disbursement: HLADISB, HPAYOFF
+
+2. KEY DATABASE TABLES:
+   - TBAADM.GAM: main account table (ENTITY_CRE_FLG='N'=unverified, ACCT_CLS_FLG='Y'=closed)
+   - TBAADM.ADT: audit table (find pending verification — look for '!' in authorizer column)
+   - TBAADM.SIP, TBAADM.SCMT: collateral tables
+   - TBAADM.LHT: OD data, TBAADM.TAM: time deposit, TBAADM.LAM: loan
+   - crmuser.ADDRESS: customer address (START_DATE must = system date)
+   - crmuser.PHONEEMAIL: phone records (duplicates cause fatal errors)
+
+3. COMMON PROBLEMS & SOLUTIONS:
+   - "Invalid Customer Account" on verify → CIF lost/not in FINCORE → create new CIF, use BIB Support system to change CIF
+   - Address not populating → START_DATE mismatch in ADDRESS table → fix with Toad: UPDATE crmuser.ADDRESS SET START_DATE=SYSDATE WHERE CUST_ID='<CIF>'
+   - HACLINQ fatal error → duplicate phone records → delete from crmuser.PHONEEMAIL
+   - Disbursement fails → check Gross Disbursement flag, operative account balance, drawing power=Equal in HACLHM
+   - Saving not collecting interest → check HACM interest flag, check unverified pending in HCAAC/HAALM/HAFSM, check HINTTM
+   - GR3 error on close → reject attached cheques via Inventory Management first
+   - HACM fatal error → CIF phone/address problem or unverified pending in TBAADM.ADT
+   - Cannot disburse → drawing power must be Equal, sanction limit = drawing power, check final disbursement flag in tbaadm.lam
+
+4. ACCOUNT FORMATS: Saving: xxx9501+, Current: xxx9601+, OD: xxx9101+, Loan: xxx9001+
+
+5. IT SUPPORT: Password reset, network/LAN issues, printer troubleshooting, VPN (Cisco AnyConnect/FortiClient to vpn.bunnabank.et), slow PC, ITSM portal at http://itsm.bunnabank.et
+
+RULES:
+- Always give step-by-step numbered instructions
+- Always mention the exact Finacle menu name (e.g., HACM, HOAACSB)
+- Never ask for or store passwords
+- If issue needs database access, mention Toad
+- If complex, advise opening ITSM ticket
+- Be concise but complete
+- Respond in English`;
+
+const SYSTEM_PROMPT_AM = `አንተ የቡና ባንክ (BIB) ኢትዮጵያ ልምድ ያለው አይቲ ድጋፍ ረዳት ነህ። በፊናክል ኮር ባንኪንግ ሲስተም ላይ ልዩ ባለሙያ ነህ።
+
+1. የፊናክል ሜኑዎች:
+   - አካውንት መክፈት: HOAACSB (ቁጠባ)፣ HOAACCA (ቻሪ)፣ HOAACOD (OD)፣ HOAACTD (ታይም ዲፖዚት)፣ HOAACLA (ብድር)
+   - ማረጋገጫ: HOAACVSB፣ HOAACVCA፣ HOAACVOD፣ HOAACVTD፣ HOAACVLA
+   - ስራዎች: HACM (ማስተካከያ)፣ HCAAC (ዝጋት)፣ HAFSM (ማቀዝቀዝ)፣ HALM (lien)
+   - ብድር: HACLHM፣ HCLM፣ HSCLM፣ HLADISB፣ HPAYOFF፣ HLARA
+   - ሪፖርቶች: HPBP (ፓስቡክ)፣ HPSP (ስቴትመንት)
+
+2. የተለመዱ ችግሮች እና መፍቻዎቻቸው:
+   - "Invalid Customer Account" → CIF ጠፍቷል → አዲስ CIF ፍጠር፣ BIB Support system ተጠቀም
+   - አድራሻ አይመጣም → ADDRESS table START_DATE ችግር → Toad ተጠቅሞ ያስተካክሉ
+   - HACLINQ fatal error → ሁለት ስልክ ቁጥሮች → crmuser.PHONEEMAIL ያስወግዱ
+   - Disbursement ይሳናል → Gross Disbursement + operative account ሂሳብ ያረጋግጡ
+   - ወለድ አያከማችም → HACM interest flag፣ HCAAC/HAALM/HAFSM pending ያረጋግጡ
+
+ህጎች:
+- ሁልጊዜ ደረጃ-በ-ደረጃ መመሪያ ስጥ
+- ሁልጊዜ ትክክለኛ የፊናክል ሜኑ ስም ጥቀስ
+- ፓስወርድ ፈጽሞ አትጠይቅ
+- ሁልጊዜ **በአማርኛ** ምላሽ ስጥ — ቴክኒካዊ ቃላት (HACM፣ CIF፣ SOL ID) ሳይቀሩ
+- ምላሾችህ ግልጽ፣ አጭር እና ሙያዊ ይሁኑ`;
+
+// Cache discovered model per API key
+const _modelCache = {};
+
+async function askGemini(apiKey, userMsg, lang, history = [], modelIndex = 0) {
+  const systemPrompt = lang === "am" ? SYSTEM_PROMPT_AM : SYSTEM_PROMPT_EN;
+
+  // On first call, discover the best available model
+  if (modelIndex === 0 && !_modelCache[apiKey]) {
+    _modelCache[apiKey] = await getAvailableModel(apiKey);
+  }
+  const model = modelIndex === 0
+    ? (_modelCache[apiKey] || GEMINI_MODELS[0])
+    : (GEMINI_MODELS[modelIndex] || GEMINI_MODELS[0]);
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  // Build conversation history for context
+  const historyContents = history.slice(-6).map(m => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: m.text }],
+  }));
+
   const body = {
-    contents: [{ parts: [{ text: `${systemPrompt}\n\nUser question: ${userMsg}` }] }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 800 },
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: [
+      ...historyContents,
+      { role: "user", parts: [{ text: userMsg }] },
+    ],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 1000, topP: 0.8 },
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+    ],
   };
 
   const res = await fetch(url, {
@@ -31,17 +148,14 @@ async function askGemini(apiKey, userMsg, lang, modelIndex = 0) {
     body: JSON.stringify(body),
   });
 
-  // Rate limited — extract retry delay and wait, then retry same model
   if (res.status === 429) {
     const err = await res.json().catch(() => ({}));
     const msg = err?.error?.message || "";
-    // Parse "retry in X.XXXs" from the error message
     const match = msg.match(/retry in ([0-9.]+)s/i);
     const waitMs = match ? Math.ceil(parseFloat(match[1]) * 1000) + 500 : 8000;
     await new Promise(r => setTimeout(r, waitMs));
-    // Try next model in fallback chain
     if (modelIndex + 1 < GEMINI_MODELS.length) {
-      return askGemini(apiKey, userMsg, lang, modelIndex + 1);
+      return askGemini(apiKey, userMsg, lang, history, modelIndex + 1);
     }
     throw new Error("All Gemini models are rate-limited. Please try again in a moment.");
   }
@@ -49,9 +163,10 @@ async function askGemini(apiKey, userMsg, lang, modelIndex = 0) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const msg = err?.error?.message || `HTTP ${res.status}`;
-    // Try next model on quota errors
-    if ((res.status === 403 || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED")) && modelIndex + 1 < GEMINI_MODELS.length) {
-      return askGemini(apiKey, userMsg, lang, modelIndex + 1);
+    if ((res.status === 403 || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("not found") || msg.includes("not supported")) && modelIndex + 1 < GEMINI_MODELS.length) {
+      // Clear cache so next call re-discovers
+      delete _modelCache[apiKey];
+      return askGemini(apiKey, userMsg, lang, history, modelIndex + 1);
     }
     throw new Error(msg);
   }
@@ -87,8 +202,8 @@ Type your question or pick a topic below.` },
 };
 
 const QUICK = {
-  en: ["Open saving account", "Freeze account (HAFSM)", "Verify account", "Collateral lodgment", "Password reset", "Printer not working", "VPN issue", "ITSM ticket"],
-  am: ["ቁጠባ መለያ ክፈት", "መለያ አቀዝቅዝ (HAFSM)", "መለያ አረጋግጥ", "ዋስትና ምዝገባ", "ፓስወርድ ዳግም ማስጀመር", "ማተሚያ አይሰራም", "VPN ችግር", "ITSM ቲኬት"],
+  en: ["Open saving account", "Freeze account (HAFSM)", "Verify account error", "Collateral (HCLM)", "Interest not collecting", "Disbursement error", "Finacle menu reference", "Password reset", "Printer not working", "ITSM ticket"],
+  am: ["ቁጠባ አካውንት ክፈት", "አካውንት አቀዝቅዝ (HAFSM)", "ማረጋገጫ ስህተት", "ዋስትና (HCLM)", "ወለድ አያከማችም", "Disbursement ስህተት", "የፊናክል ሜኑ ማጣቀሻ", "ፓስወርድ ዳግም ማስጀመር", "ማተሚያ አይሰራም", "ITSM ቲኬት"],
 };
 
 const SOURCE_BADGE = {
@@ -181,30 +296,33 @@ export default function ITSupport() {
     setGeminiError("");
     setMessages(prev => [...prev, { role: "user", text: msg }]);
     setTyping(true);
+    setTypingMsg("");
 
-    // 1. Try local KB first
     const { answer, lang } = findAnswer(msg);
-    if (answer) {
-      await new Promise(r => setTimeout(r, 500));
-      setMessages(prev => [...prev, { role: "bot", src: "local", text: answer }]);
-      setTyping(false);
-      return;
-    }
 
-    // 2. Fall back to Gemini if key is set
-    if (geminiKey) {
+    // If Gemini key exists, use it for everything the local KB doesn't cover
+    // (including greetings, general questions, follow-ups, etc.)
+    if (!answer && geminiKey) {
+      setTypingMsg("Asking Gemini AI...");
       try {
-        const reply = await askGemini(geminiKey, msg, lang);
+        const history = messages.filter(m => m.role === "user" || m.role === "bot").slice(-6);
+        const reply = await askGemini(geminiKey, msg, lang, history);
         setMessages(prev => [...prev, { role: "bot", src: "gemini", text: reply }]);
       } catch (err) {
         setGeminiError(err.message);
-        setMessages(prev => [...prev, { role: "bot", src: "local", text: FALLBACK[lang] }]);
+        // On Gemini failure, show local answer if available, else fallback
+        setMessages(prev => [...prev, { role: "bot", src: "local", text: answer || FALLBACK[lang] }]);
       }
-    } else {
-      await new Promise(r => setTimeout(r, 500));
-      setMessages(prev => [...prev, { role: "bot", src: "local", text: FALLBACK[lang] }]);
+      setTyping(false);
+      setTypingMsg("");
+      return;
     }
+
+    // Local KB answer (no Gemini key, or local match found)
+    await new Promise(r => setTimeout(r, 500));
+    setMessages(prev => [...prev, { role: "bot", src: "local", text: answer || FALLBACK[lang] }]);
     setTyping(false);
+    setTypingMsg("");
   };
 
   const handleKey = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
@@ -312,11 +430,15 @@ export default function ITSupport() {
               <HiSparkles className="w-4 h-4 text-white" />
             </div>
             <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-              <div className="flex gap-1 items-center h-5">
-                <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
+              {typingMsg ? (
+                <p className="text-xs text-gray-400 italic">{typingMsg}</p>
+              ) : (
+                <div className="flex gap-1 items-center h-5">
+                  <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              )}
             </div>
           </div>
         )}
