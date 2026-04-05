@@ -18,7 +18,7 @@ import { MOCK_CUSTOMERS, MOCK_TRANSACTIONS } from "../data/mockData";
 export default function Dashboard() {
   const navigate = useNavigate();
   const { t } = useLang();
-  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Demo Staff","role":"officer"}');
+  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Tibebu Teferi","role":"Developer"}');
   const inputRef = useRef(null);
 
   const [activePage, setActivePage] = useState("search");
