@@ -2,18 +2,7 @@
 import { HiPaperAirplane, HiCpuChip, HiUser, HiSparkles, HiKey, HiXMark, HiCheckCircle, HiGlobeAlt, HiArrowPath } from "react-icons/hi2";
 import { findAnswer, FALLBACK } from "../data/itSupportKB";
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
-
-async function getAvailableModel(apiKey) {
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (!res.ok) return GEMINI_MODELS[0];
-    const data = await res.json();
-    const names = (data.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent")).map(m => m.name.replace("models/", ""));
-    for (const p of GEMINI_MODELS) { if (names.includes(p)) return p; }
-    return names.find(n => n.includes("flash")) || names[0] || GEMINI_MODELS[0];
-  } catch { return GEMINI_MODELS[0]; }
-}
+const GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"];
 
 const PROMPT_EN = `You are BUNA AI, the official IT Support and Banking Assistant for Buna Bank (BIB), Ethiopia. You are warm, professional, and give comprehensive detailed answers. Respond warmly to ALL messages including greetings. For banking/IT questions, give thorough step-by-step answers. FINACLE MENUS: HOAACSB(Saving), HOAACCA(Current), HOAACOD(OD), HOAACTD(TD), HOAACLA(Loan). Verify: HOAACVSB, HOAACVCA, HOAACVOD, HOAACVTD, HOAACVLA. Ops: HACM(modify), HCAAC(close), HPAYOFF(loan close), HAFSM(freeze), HALM(lien), HCLM(collateral), HLADISB(disburse), HACLHM(OD limit), HPBP(passbook), HPSP(statement). COMMON FIXES: 1. Invalid Customer Account: CIF lost, create new CIF in CRM, use BIB Support portal to change CIF. WARNING: Cancel instead of Verify permanently deletes account. 2. Address not populating: UPDATE crmuser.ADDRESS SET START_DATE=SYSDATE WHERE CUST_ID='<CIF>'. 3. HACLINQ fatal error: DELETE FROM crmuser.PHONEEMAIL WHERE CUST_ID='<CIF>' AND ROWNUM=1. 4. Disbursement fails: check Gross Disbursement flag, operative account balance, drawing power=Equal in HACLHM. 5. Interest not collecting: HACM > Interest tab > Collect Interest=Yes. RULES: Always give numbered steps. Bold menu names. Include SQL when needed. Never ask for passwords.`;
 
@@ -22,9 +11,8 @@ const PROMPT_AM = `You are BUNA AI, the official IT Support and Banking Assistan
 const _cache = {};
 
 async function askGemini(apiKey, msg, lang, history = [], idx = 0) {
-  if (idx === 0 && !_cache[apiKey]) _cache[apiKey] = await getAvailableModel(apiKey);
-  const model = idx === 0 ? (_cache[apiKey] || GEMINI_MODELS[0]) : (GEMINI_MODELS[idx] || GEMINI_MODELS[0]);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const model = GEMINI_MODELS[idx] || GEMINI_MODELS[0];
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
   const body = {
     system_instruction: { parts: [{ text: lang === "am" ? PROMPT_AM : PROMPT_EN }] },
     contents: [...history.slice(-6).map(m => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] })), { role: "user", parts: [{ text: msg }] }],
@@ -44,7 +32,23 @@ async function askGemini(apiKey, msg, lang, history = [], idx = 0) {
     if (idx + 1 < GEMINI_MODELS.length) { delete _cache[apiKey]; return askGemini(apiKey, msg, lang, history, idx + 1); }
     throw new Error(err?.error?.message || `HTTP ${res.status}`);
   }
-  return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "", result = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const d = line.slice(6).trim();
+      if (d === "[DONE]") break;
+      try { const chunk = JSON.parse(d)?.candidates?.[0]?.content?.parts?.[0]?.text; if (chunk) result += chunk; } catch {}
+    }
+  }
+  return result || "No response received.";
 }
 
 const BADGE = { local: { label: "Local KB", cls: "bg-amber-100 text-amber-700" }, gemini: { label: "BUNA AI", cls: "bg-blue-100 text-blue-700" } };
