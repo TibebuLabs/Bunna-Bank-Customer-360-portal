@@ -2,17 +2,33 @@
 import { HiPaperAirplane, HiCpuChip, HiUser, HiSparkles, HiKey, HiXMark, HiCheckCircle, HiGlobeAlt, HiArrowPath } from "react-icons/hi2";
 import { findAnswer, FALLBACK } from "../data/itSupportKB";
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+// ── Gemini REST helper ────────────────────────────────────────────────────────
+const GEMINI_MODELS = [
+  "gemini-2.0-flash-exp",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-8b",
+];
 
 async function getAvailableModel(apiKey) {
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (!res.ok) return GEMINI_MODELS[0];
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    if (!res.ok) return "gemini-2.0-flash-exp";
     const data = await res.json();
-    const names = (data.models || []).filter(m => m.supportedGenerationMethods?.includes("generateContent")).map(m => m.name.replace("models/", ""));
-    for (const p of GEMINI_MODELS) { if (names.includes(p)) return p; }
-    return names.find(n => n.includes("flash")) || names[0] || GEMINI_MODELS[0];
-  } catch { return GEMINI_MODELS[0]; }
+    const names = (data.models || [])
+      .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+      .map(m => m.name.replace("models/", ""));
+    for (const preferred of GEMINI_MODELS) {
+      if (names.some(n => n === preferred || n.startsWith(preferred))) return preferred;
+    }
+    const flash = names.find(n => n.includes("flash") && !n.includes("thinking"));
+    return flash || names[0] || "gemini-2.0-flash-exp";
+  } catch {
+    return "gemini-2.0-flash-exp";
+  }
 }
 
 const PROMPT_EN = `You are BUNA AI, the official IT Support and Banking Assistant for Buna Bank (BIB), Ethiopia. You are warm, professional, and give comprehensive detailed answers. Respond warmly to ALL messages including greetings. For banking/IT questions, give thorough step-by-step answers. FINACLE MENUS: HOAACSB(Saving), HOAACCA(Current), HOAACOD(OD), HOAACTD(TD), HOAACLA(Loan). Verify: HOAACVSB, HOAACVCA, HOAACVOD, HOAACVTD, HOAACVLA. Ops: HACM(modify), HCAAC(close), HPAYOFF(loan close), HAFSM(freeze), HALM(lien), HCLM(collateral), HLADISB(disburse), HACLHM(OD limit), HPBP(passbook), HPSP(statement). COMMON FIXES: 1. Invalid Customer Account: CIF lost, create new CIF in CRM, use BIB Support portal to change CIF. WARNING: Cancel instead of Verify permanently deletes account. 2. Address not populating: UPDATE crmuser.ADDRESS SET START_DATE=SYSDATE WHERE CUST_ID='<CIF>'. 3. HACLINQ fatal error: DELETE FROM crmuser.PHONEEMAIL WHERE CUST_ID='<CIF>' AND ROWNUM=1. 4. Disbursement fails: check Gross Disbursement flag, operative account balance, drawing power=Equal in HACLHM. 5. Interest not collecting: HACM > Interest tab > Collect Interest=Yes. RULES: Always give numbered steps. Bold menu names. Include SQL when needed. Never ask for passwords.`;
@@ -25,26 +41,45 @@ async function askGemini(apiKey, msg, lang, history = [], idx = 0) {
   if (idx === 0 && !_cache[apiKey]) _cache[apiKey] = await getAvailableModel(apiKey);
   const model = idx === 0 ? (_cache[apiKey] || GEMINI_MODELS[0]) : (GEMINI_MODELS[idx] || GEMINI_MODELS[0]);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  // Build contents: system prompt as first user turn, then history, then current message
+  // This works across ALL Gemini model versions reliably
+  const contents = [
+    { role: "user", parts: [{ text: systemPrompt }] },
+    { role: "model", parts: [{ text: "Understood. I am the Bunna Bank IT Support Assistant. I will help with Finacle and IT issues." }] },
+    ...history.slice(-6).flatMap(m => {
+      if (!m.text) return [];
+      return [{ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] }];
+    }),
+    { role: "user", parts: [{ text: userMsg }] },
+  ];
+
   const body = {
-    system_instruction: { parts: [{ text: lang === "am" ? PROMPT_AM : PROMPT_EN }] },
-    contents: [...history.slice(-6).map(m => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] })), { role: "user", parts: [{ text: msg }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2000, topP: 0.85 },
-    safetySettings: [{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }, { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" }],
+    contents,
+    generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
   };
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (res.status === 429) {
     const err = await res.json().catch(() => ({}));
-    const match = (err?.error?.message || "").match(/retry in ([0-9.]+)s/i);
-    await new Promise(r => setTimeout(r, match ? Math.ceil(parseFloat(match[1]) * 1000) + 500 : 6000));
-    if (idx + 1 < GEMINI_MODELS.length) return askGemini(apiKey, msg, lang, history, idx + 1);
-    throw new Error("Rate limited. Please try again.");
+    const msg = err?.error?.message || "";
+    const match = msg.match(/retry in ([0-9.]+)s/i);
+    const waitMs = match ? Math.ceil(parseFloat(match[1]) * 1000) + 1000 : 10000;
+    // Return a special rate-limit object so UI can show countdown
+    throw Object.assign(new Error("RATE_LIMIT"), { waitMs, isRateLimit: true });
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (idx + 1 < GEMINI_MODELS.length) { delete _cache[apiKey]; return askGemini(apiKey, msg, lang, history, idx + 1); }
-    throw new Error(err?.error?.message || `HTTP ${res.status}`);
+    const errMsg = err?.error?.message || `HTTP ${res.status}`;
+    // Try next model on any model-related error
+    if (modelIndex + 1 < GEMINI_MODELS.length) {
+      delete _modelCache[apiKey];
+      return askGemini(apiKey, userMsg, lang, history, modelIndex + 1);
+    }
+    throw new Error(errMsg);
   }
-  return (await res.json())?.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
+
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
 }
 
 const BADGE = { local: { label: "Local KB", cls: "bg-amber-100 text-amber-700" }, gemini: { label: "BUNA AI", cls: "bg-blue-100 text-blue-700" } };
@@ -67,23 +102,95 @@ function MsgText({ text }) {
 
 function ApiKeyModal({ onSave, onClose }) {
   const [val, setVal] = useState(localStorage.getItem("gemini_key") || "");
-  const save = () => { if (val.trim()) { localStorage.setItem("gemini_key", val.trim()); onSave(val.trim()); onClose(); } };
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null); // null | "ok" | "error"
+  const [detectedModel, setDetectedModel] = useState("");
+
+  const testAndSave = async () => {
+    if (!val.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const model = await getAvailableModel(val.trim());
+      setDetectedModel(model);
+      // Quick test call
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${val.trim()}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Hi" }] }], generationConfig: { maxOutputTokens: 10 } }),
+      });
+      if (res.ok) {
+        setTestResult("ok");
+        localStorage.setItem("gemini_key", val.trim());
+        localStorage.setItem("gemini_model", model);
+        setTimeout(() => { onSave(val.trim()); onClose(); }, 1200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setTestResult(err?.error?.message || "Invalid key or quota exceeded");
+      }
+    } catch (e) {
+      setTestResult(e.message || "Connection failed");
+    }
+    setTesting(false);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         <div className="bg-gradient-to-br from-[#3d1209] to-[#7a2a15] px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center"><HiKey className="w-5 h-5 text-white" /></div>
-            <div><div className="text-white font-semibold">Gemini API Key</div><div className="text-amber-300/70 text-xs">Stored locally in your browser</div></div>
+            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center">
+              <HiKey className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="text-white font-semibold">Gemini API Key</div>
+              <div className="text-amber-300/70 text-xs">Free key from Google AI Studio</div>
+            </div>
           </div>
           <button onClick={onClose} className="text-white/50 hover:text-white"><HiXMark className="w-5 h-5" /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
-          <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">Get your free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="underline font-semibold">aistudio.google.com</a></p>
-          <input type="password" value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === "Enter" && save()} placeholder="AIza..." className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#3d1209]" autoFocus />
+          <p className="text-xs text-gray-500">
+            Get your free key at{" "}
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 underline font-medium">
+              aistudio.google.com
+            </a>
+            {" "}— stored only in your browser.
+          </p>
+          <input
+            type="password"
+            value={val}
+            onChange={e => { setVal(e.target.value); setTestResult(null); }}
+            placeholder="AIzaSy..."
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#3d1209] transition-colors font-mono"
+          />
+          {testResult === "ok" && (
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 text-xs px-3 py-2 rounded-xl">
+              <HiCheckCircle className="w-4 h-4 flex-shrink-0" />
+              <span>Key works! Using model: <strong>{detectedModel}</strong></span>
+            </div>
+          )}
+          {testResult && testResult !== "ok" && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs px-3 py-2 rounded-xl">
+              ❌ {testResult}
+            </div>
+          )}
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-xl text-sm hover:bg-gray-50">Cancel</button>
-            <button onClick={save} className="flex-1 bg-[#3d1209] hover:bg-[#5a1b0e] text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2"><HiCheckCircle className="w-4 h-4" /> Activate</button>
+            <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-xl text-sm hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={testAndSave}
+              disabled={!val.trim() || testing}
+              className="flex-1 bg-[#3d1209] hover:bg-[#5a1b0e] disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              {testing ? (
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Testing...</>
+              ) : (
+                <><HiCheckCircle className="w-4 h-4" /> Test & Save</>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -98,27 +205,26 @@ export default function ITSupport() {
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const [typingMsg, setTypingMsg] = useState("");
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY || "";
-  const [geminiKey, setGeminiKey] = useState((envKey && envKey !== "your_gemini_api_key_here") ? envKey : (localStorage.getItem("gemini_key") || ""));
+  const [geminiKey, setGeminiKey] = useState(localStorage.getItem("gemini_key") || "");
+
+  // Pre-populate model cache from localStorage if available
+  useEffect(() => {
+    const savedKey = localStorage.getItem("gemini_key");
+    const savedModel = localStorage.getItem("gemini_model");
+    if (savedKey && savedModel) _modelCache[savedKey] = savedModel;
+  }, []);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [geminiError, setGeminiError] = useState("");
-  const [msgCount, setMsgCount] = useState(0);
+  const [retryCountdown, setRetryCountdown] = useState(0);
+  const retryTimerRef = useRef(null);
   const bottomRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, typing]);
 
-  const QUICK_EN = ["Open saving account", "Invalid Customer Account error", "Freeze account (HAFSM)", "Loan disbursement fails", "Interest not collecting", "HACLINQ fatal error", "Collateral (HCLM)", "Address not populating", "Password reset", "ITSM ticket", "Finacle menu reference", "VPN issue"];
-  const QUICK_AM = ["Saving account", "Invalid Customer Account", "Freeze (HAFSM)", "Disbursement error", "Interest problem", "HACLINQ error", "Collateral", "Address issue", "Password reset", "ITSM ticket", "Finacle menus", "VPN"];
+  // Cleanup retry timer on unmount
+  useEffect(() => () => { if (retryTimerRef.current) clearInterval(retryTimerRef.current); }, []);
 
-  const switchLang = (lang) => {
-    setUiLang(lang);
-    const greeting = lang === "am"
-      ? { role: "bot", src: "local", text: "ጤና ይስጥልኝ! እኔ **BUNA AI** ነኝ - የቡና ባንክ አይቲ ድጋፍ ረዳትዎ።\n\nእነዚህን ልርዳዎ እችላለሁ:\n- ፊናክል CBS - አካውንት መክፈት፣ ማረጋገጥ\n- ብድር ስራዎች - disbursement፣ ዋስትና\n- ዳታቤዝ ማስተካከያ - Toad SQL\n- አይቲ ድጋፍ - ፓስወርድ፣ VPN፣ ITSM\n\nጥያቄዎን ይጠይቁ።" }
-      : initMsg;
-    setMessages([greeting]);
-    setInput("");
-    setGeminiError("");
-  };
+  const switchLang = (lang) => { setUiLang(lang); setMessages([GREETING[lang]]); setInput(""); };
 
   const send = async (text) => {
     const msg = (text || input).trim();
@@ -137,6 +243,33 @@ export default function ITSupport() {
         const reply = await askGemini(geminiKey, msg, lang, history);
         setMessages(prev => [...prev, { role: "bot", src: "gemini", text: reply }]);
       } catch (err) {
+        if (err.isRateLimit) {
+          // Show countdown and auto-retry
+          const secs = Math.ceil(err.waitMs / 1000);
+          setTypingMsg(`Rate limited — retrying in ${secs}s...`);
+          let remaining = secs;
+          retryTimerRef.current = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(retryTimerRef.current);
+              setTypingMsg("Retrying Gemini AI...");
+              const history2 = messages.filter(m => m.role === "user" || m.role === "bot").slice(-6);
+              askGemini(geminiKey, msg, lang, history2)
+                .then(reply => {
+                  setMessages(prev => [...prev, { role: "bot", src: "gemini", text: reply }]);
+                })
+                .catch(err2 => {
+                  setGeminiError(err2.message);
+                  setMessages(prev => [...prev, { role: "bot", src: "local", text: answer || FALLBACK[lang] }]);
+                })
+                .finally(() => { setTyping(false); setTypingMsg(""); setRetryCountdown(0); });
+            } else {
+              setTypingMsg(`Rate limited — retrying in ${remaining}s...`);
+              setRetryCountdown(remaining);
+            }
+          }, 1000);
+          return; // keep typing=true until retry completes
+        }
         setGeminiError(err.message);
         setMessages(prev => [...prev, { role: "bot", src: "local", text: answer || FALLBACK[lang] }]);
       }
