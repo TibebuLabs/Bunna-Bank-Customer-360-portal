@@ -7,10 +7,11 @@ import { findAnswer, FALLBACK } from "../data/itSupportKB";
 
 // ── Gemini REST helper ────────────────────────────────────────────────────────
 const GEMINI_MODELS = [
-  "gemini-2.0-flash-lite",
+  "gemini-2.0-flash-exp",
   "gemini-2.0-flash",
-  "gemini-1.5-flash-latest",
-  "gemini-1.5-flash-8b-latest",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-8b",
 ];
 
 // Fetch available models from the API and pick the best supported one
@@ -19,20 +20,18 @@ async function getAvailableModel(apiKey) {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
     );
-    if (!res.ok) return GEMINI_MODELS[0];
+    if (!res.ok) return "gemini-2.0-flash-exp";
     const data = await res.json();
     const names = (data.models || [])
       .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
       .map(m => m.name.replace("models/", ""));
-    // Prefer in order
     for (const preferred of GEMINI_MODELS) {
-      if (names.includes(preferred)) return preferred;
+      if (names.some(n => n === preferred || n.startsWith(preferred))) return preferred;
     }
-    // Fallback to first available flash model
-    const flash = names.find(n => n.includes("flash"));
-    return flash || names[0] || GEMINI_MODELS[0];
+    const flash = names.find(n => n.includes("flash") && !n.includes("thinking"));
+    return flash || names[0] || "gemini-2.0-flash-exp";
   } catch {
-    return GEMINI_MODELS[0];
+    return "gemini-2.0-flash-exp";
   }
 }
 
@@ -123,23 +122,21 @@ async function askGemini(apiKey, userMsg, lang, history = [], modelIndex = 0) {
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  // Build conversation history for context
-  const historyContents = history.slice(-6).map(m => ({
-    role: m.role === "user" ? "user" : "model",
-    parts: [{ text: m.text }],
-  }));
+  // Build contents: system prompt as first user turn, then history, then current message
+  // This works across ALL Gemini model versions reliably
+  const contents = [
+    { role: "user", parts: [{ text: systemPrompt }] },
+    { role: "model", parts: [{ text: "Understood. I am the Bunna Bank IT Support Assistant. I will help with Finacle and IT issues." }] },
+    ...history.slice(-6).flatMap(m => {
+      if (!m.text) return [];
+      return [{ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] }];
+    }),
+    { role: "user", parts: [{ text: userMsg }] },
+  ];
 
   const body = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    contents: [
-      ...historyContents,
-      { role: "user", parts: [{ text: userMsg }] },
-    ],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 1000, topP: 0.8 },
-    safetySettings: [
-      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-    ],
+    contents,
+    generationConfig: { temperature: 0.3, maxOutputTokens: 1000 },
   };
 
   const res = await fetch(url, {
@@ -152,27 +149,24 @@ async function askGemini(apiKey, userMsg, lang, history = [], modelIndex = 0) {
     const err = await res.json().catch(() => ({}));
     const msg = err?.error?.message || "";
     const match = msg.match(/retry in ([0-9.]+)s/i);
-    const waitMs = match ? Math.ceil(parseFloat(match[1]) * 1000) + 500 : 8000;
-    await new Promise(r => setTimeout(r, waitMs));
-    if (modelIndex + 1 < GEMINI_MODELS.length) {
-      return askGemini(apiKey, userMsg, lang, history, modelIndex + 1);
-    }
-    throw new Error("All Gemini models are rate-limited. Please try again in a moment.");
+    const waitMs = match ? Math.ceil(parseFloat(match[1]) * 1000) + 1000 : 10000;
+    // Return a special rate-limit object so UI can show countdown
+    throw Object.assign(new Error("RATE_LIMIT"), { waitMs, isRateLimit: true });
   }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `HTTP ${res.status}`;
-    if ((res.status === 403 || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("not found") || msg.includes("not supported")) && modelIndex + 1 < GEMINI_MODELS.length) {
-      // Clear cache so next call re-discovers
+    const errMsg = err?.error?.message || `HTTP ${res.status}`;
+    // Try next model on any model-related error
+    if (modelIndex + 1 < GEMINI_MODELS.length) {
       delete _modelCache[apiKey];
       return askGemini(apiKey, userMsg, lang, history, modelIndex + 1);
     }
-    throw new Error(msg);
+    throw new Error(errMsg);
   }
 
   const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini.";
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -235,6 +229,39 @@ function MsgText({ text }) {
 // ── API Key modal ─────────────────────────────────────────────────────────────
 function ApiKeyModal({ onSave, onClose }) {
   const [val, setVal] = useState(localStorage.getItem("gemini_key") || "");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null); // null | "ok" | "error"
+  const [detectedModel, setDetectedModel] = useState("");
+
+  const testAndSave = async () => {
+    if (!val.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const model = await getAvailableModel(val.trim());
+      setDetectedModel(model);
+      // Quick test call
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${val.trim()}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Hi" }] }], generationConfig: { maxOutputTokens: 10 } }),
+      });
+      if (res.ok) {
+        setTestResult("ok");
+        localStorage.setItem("gemini_key", val.trim());
+        localStorage.setItem("gemini_model", model);
+        setTimeout(() => { onSave(val.trim()); onClose(); }, 1200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setTestResult(err?.error?.message || "Invalid key or quota exceeded");
+      }
+    } catch (e) {
+      setTestResult(e.message || "Connection failed");
+    }
+    setTesting(false);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-fade-in">
@@ -245,25 +272,51 @@ function ApiKeyModal({ onSave, onClose }) {
             </div>
             <div>
               <div className="text-white font-semibold">Gemini API Key</div>
-              <div className="text-amber-300/70 text-xs">Stored locally in your browser</div>
+              <div className="text-amber-300/70 text-xs">Free key from Google AI Studio</div>
             </div>
           </div>
           <button onClick={onClose} className="text-white/50 hover:text-white"><HiXMark className="w-5 h-5" /></button>
         </div>
         <div className="px-6 py-5 space-y-4">
-          <p className="text-xs text-gray-500">Get your free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 underline">aistudio.google.com</a>. It stays in your browser only.</p>
+          <p className="text-xs text-gray-500">
+            Get your free key at{" "}
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 underline font-medium">
+              aistudio.google.com
+            </a>
+            {" "}— stored only in your browser.
+          </p>
           <input
             type="password"
             value={val}
-            onChange={e => setVal(e.target.value)}
-            placeholder="AIza..."
-            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#3d1209] transition-colors"
+            onChange={e => { setVal(e.target.value); setTestResult(null); }}
+            placeholder="AIzaSy..."
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#3d1209] transition-colors font-mono"
           />
+          {testResult === "ok" && (
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 text-xs px-3 py-2 rounded-xl">
+              <HiCheckCircle className="w-4 h-4 flex-shrink-0" />
+              <span>Key works! Using model: <strong>{detectedModel}</strong></span>
+            </div>
+          )}
+          {testResult && testResult !== "ok" && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs px-3 py-2 rounded-xl">
+              ❌ {testResult}
+            </div>
+          )}
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-xl text-sm hover:bg-gray-50 transition-colors">Cancel</button>
-            <button onClick={() => { localStorage.setItem("gemini_key", val); onSave(val); onClose(); }}
-              className="flex-1 bg-[#3d1209] hover:bg-[#5a1b0e] text-white font-semibold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
-              <HiCheckCircle className="w-4 h-4" /> Save Key
+            <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-xl text-sm hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={testAndSave}
+              disabled={!val.trim() || testing}
+              className="flex-1 bg-[#3d1209] hover:bg-[#5a1b0e] disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              {testing ? (
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Testing...</>
+              ) : (
+                <><HiCheckCircle className="w-4 h-4" /> Test & Save</>
+              )}
             </button>
           </div>
         </div>
@@ -280,12 +333,24 @@ export default function ITSupport() {
   const [typing, setTyping] = useState(false);
   const [typingMsg, setTypingMsg] = useState("");
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem("gemini_key") || "");
+
+  // Pre-populate model cache from localStorage if available
+  useEffect(() => {
+    const savedKey = localStorage.getItem("gemini_key");
+    const savedModel = localStorage.getItem("gemini_model");
+    if (savedKey && savedModel) _modelCache[savedKey] = savedModel;
+  }, []);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [geminiError, setGeminiError] = useState("");
+  const [retryCountdown, setRetryCountdown] = useState(0);
+  const retryTimerRef = useRef(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, typing]);
+
+  // Cleanup retry timer on unmount
+  useEffect(() => () => { if (retryTimerRef.current) clearInterval(retryTimerRef.current); }, []);
 
   const switchLang = (lang) => { setUiLang(lang); setMessages([GREETING[lang]]); setInput(""); };
 
@@ -309,8 +374,34 @@ export default function ITSupport() {
         const reply = await askGemini(geminiKey, msg, lang, history);
         setMessages(prev => [...prev, { role: "bot", src: "gemini", text: reply }]);
       } catch (err) {
+        if (err.isRateLimit) {
+          // Show countdown and auto-retry
+          const secs = Math.ceil(err.waitMs / 1000);
+          setTypingMsg(`Rate limited — retrying in ${secs}s...`);
+          let remaining = secs;
+          retryTimerRef.current = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(retryTimerRef.current);
+              setTypingMsg("Retrying Gemini AI...");
+              const history2 = messages.filter(m => m.role === "user" || m.role === "bot").slice(-6);
+              askGemini(geminiKey, msg, lang, history2)
+                .then(reply => {
+                  setMessages(prev => [...prev, { role: "bot", src: "gemini", text: reply }]);
+                })
+                .catch(err2 => {
+                  setGeminiError(err2.message);
+                  setMessages(prev => [...prev, { role: "bot", src: "local", text: answer || FALLBACK[lang] }]);
+                })
+                .finally(() => { setTyping(false); setTypingMsg(""); setRetryCountdown(0); });
+            } else {
+              setTypingMsg(`Rate limited — retrying in ${remaining}s...`);
+              setRetryCountdown(remaining);
+            }
+          }, 1000);
+          return; // keep typing=true until retry completes
+        }
         setGeminiError(err.message);
-        // On Gemini failure, show local answer if available, else fallback
         setMessages(prev => [...prev, { role: "bot", src: "local", text: answer || FALLBACK[lang] }]);
       }
       setTyping(false);
