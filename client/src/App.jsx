@@ -19,7 +19,6 @@ class ErrorBoundary extends React.Component {
         <div style={{ padding: 40, fontFamily: "monospace", background: "#fff1f0", minHeight: "100vh" }}>
           <h2 style={{ color: "#c0392b" }}>Runtime Error</h2>
           <pre style={{ color: "#333", whiteSpace: "pre-wrap" }}>{this.state.error.toString()}</pre>
-          <pre style={{ color: "#666", fontSize: 12 }}>{this.state.error.stack}</pre>
         </div>
       );
     }
@@ -27,23 +26,22 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Protect routes — redirect to login if no token
 const PrivateRoute = ({ children }) => {
-  // DEV BYPASS: remove this line before production
-  return children;
-  // const token = localStorage.getItem("token");
-  // return token ? children : <Navigate to="/login" replace />;
+  const token = localStorage.getItem("token");
+  return token ? children : <Navigate to="/login" replace />;
 };
 
 export default function App() {
   return (
     <LanguageProvider>
       <ErrorBoundary>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/login"     element={<Login />} />
+            <Route path="/register"  element={<Register />} />
             <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="*"          element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>
       </ErrorBoundary>

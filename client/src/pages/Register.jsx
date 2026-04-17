@@ -36,11 +36,19 @@ const RegisterPage = () => {
     if (Object.keys(errs).length > 0) return setErrors(errs);
     setLoading(true);
     try {
-      await api.post("/auth/register", { fullName: formData.fullName, username: formData.username, password: formData.password, role: formData.role });
+      await api.post("/auth/register", {
+        fullName: formData.fullName,
+        username: formData.username,
+        password: formData.password,
+        role: formData.role,
+      });
       setSuccess("Account created! Redirecting to login...");
       setTimeout(() => navigate("/login"), 2000);
     } catch (err) {
-      setErrors({ general: err.response?.data?.message || "Registration failed." });
+      const data = err.response?.data;
+      // Show the most specific error available
+      const msg = data?.errors?.[0] || data?.message || "Registration failed. Please try again.";
+      setErrors({ general: msg });
     } finally {
       setLoading(false);
     }
