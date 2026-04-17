@@ -1,44 +1,68 @@
-# Bank Customer 360 Dashboard
+# Bunna Bank Customer 360 Portal
 
-A read-only internal bank portal to quickly look up customer data from Oracle DB.
+Full-stack banking portal — React + Node.js + PostgreSQL.
 
-## Stack
-- **Frontend**: React 18, React Router v6
-- **Backend**: Node.js, Express, oracledb (Thin mode)
-- **Database**: Oracle DB
+## Project Structure
+
+```
+├── client/          React + Vite frontend
+│   └── src/
+│       ├── api/     axios instance (proxies /api → localhost:5000)
+│       ├── pages/   Login, Register, Dashboard, ...
+│       └── components/
+└── server/          Node.js + Express backend
+    └── src/
+        ├── config/      PostgreSQL pool
+        ├── controllers/ auth, customer
+        ├── middleware/  JWT auth
+        ├── models/      User, Customer
+        ├── routes/      auth, customers, branches
+        └── utils/       validation
+```
 
 ## Setup
 
-### 1. Oracle Database
-Run `server/db/schema.sql` in your Oracle SQL Developer to create the tables.
+### 1. PostgreSQL
 
-### 2. Backend
 ```bash
-cd server
-npm install
-# Edit .env with your Oracle credentials
-npm run dev
+# Create DB and tables
+psql -U postgres -f server/database.sql
 ```
 
-### 3. Frontend
+### 2. Server
+
+```bash
+cd server
+# Edit .env with your DB credentials
+npm install
+npm run dev        # runs on http://localhost:5000
+```
+
+### 3. Client
+
 ```bash
 cd client
 npm install
-npm start
+npm run dev        # runs on http://localhost:5173
 ```
 
-## Environment Variables (`server/.env`)
-```
-PORT=5000
-JWT_SECRET=change_this_to_a_long_random_string
-DB_USER=your_oracle_user
-DB_PASSWORD=your_oracle_password
-DB_CONNECT_STRING=localhost:1521/ORCL
-```
+## API Endpoints
 
-## Features
-- Login / Register for bank staff
-- Search customer by Account Number or Phone Number
-- View profile photo, signature, balance, account status
-- View last 20 transactions per account
-- JWT-secured API — read-only, no write operations
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | /api/auth/register | No | Register staff user |
+| POST | /api/auth/login | No | Login, returns JWT |
+| GET | /api/auth/me | Yes | Current user info |
+| GET | /api/customers/search?q= | Yes | Search by name/phone/account |
+| GET | /api/customers/summary | Yes | Dashboard stats |
+| GET | /api/customers/:accountNo | Yes | Single customer |
+| GET | /api/customers/:accountNo/transactions | Yes | Transactions |
+| GET | /api/branches | Yes | All branches |
+| GET | /api/branches/:solId | Yes | Single branch |
+
+## Default Login
+
+```
+Username: admin
+Password: Admin@123
+```

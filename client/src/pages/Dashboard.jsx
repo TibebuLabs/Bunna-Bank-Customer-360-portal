@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   HiMagnifyingGlass, HiBuildingLibrary,
@@ -13,58 +13,76 @@ import Settings from "./Settings";
 import UserMenu from "../components/UserMenu";
 import ITSupport from "./ITSupport";
 import { useLang } from "../i18n/LanguageContext";
-import { MOCK_CUSTOMERS, MOCK_TRANSACTIONS } from "../data/mockData";
+import api from "../api/axios";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { t } = useLang();
-  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Tibebu Teferi","role":"Developer"}');
+  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Staff User","role":"officer"}');
   const inputRef = useRef(null);
 
-  const [activePage, setActivePage] = useState("search");
-  const [userMenuPage, setUserMenuPage] = useState(null); // "profile" | "settings" | "notifications" | null
-  const [query, setQuery] = useState("");
+  const [activePage, setActivePage]     = useState("search");
+  const [userMenuPage, setUserMenuPage] = useState(null);
+  const [query, setQuery]               = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
-  const [customers, setCustomers] = useState([]);
+  const [customers, setCustomers]       = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [txnLoading, setTxnLoading]     = useState(false);
+  const [searched, setSearched]         = useState(false);
+  const [searchError, setSearchError]   = useState("");
 
-  // Live suggestions while typing
-  const suggestions = (query || "").trim().length > 0
-    ? MOCK_CUSTOMERS.filter(c =>
-        c.FORACID?.includes((query || "").trim()) ||
-        c.PHONE_NO?.includes((query || "").trim()) ||
-        c.ACCT_NAME?.toLowerCase().includes((query || "").trim().toLowerCase()) ||
-        c.CUST_ID?.toLowerCase().includes((query || "").trim().toLowerCase())
-      )
-    : [];
+  // Live suggestions (debounced via state)
+  const [suggestions, setSuggestions]   = useState([]);
 
-  const runSearch = (input) => {
+  const fetchSuggestions = useCallback(async (q) => {
+    if (!q || q.trim().length < 2) { setSuggestions([]); return; }
+    try {
+      const { data } = await api.get(`/customers/search?q=${encodeURIComponent(q)}`);
+      setSuggestions(data.customers || []);
+    } catch {
+      setSuggestions([]);
+    }
+  }, []);
+
+  const runSearch = async (input) => {
     const raw = (input || "").trim();
     if (!raw) return;
     setShowDropdown(false);
+    setSuggestions([]);
     setLoading(true);
     setSearched(true);
+    setSearchError("");
     setCustomers([]);
     setSelectedCustomer(null);
     setTransactions([]);
 
-    setTimeout(() => {
-      const lower = raw.toLowerCase();
-      const results = MOCK_CUSTOMERS.filter(c =>
-        c.FORACID === raw ||                          // exact account number
-        c.PHONE_NO === raw ||                         // exact phone number
-        c.ACCT_NAME?.toLowerCase().includes(lower)   // partial name match
-      );
+    try {
+      const { data } = await api.get(`/customers/search?q=${encodeURIComponent(raw)}`);
+      const results = data.customers || [];
       setCustomers(results);
       if (results.length === 1) {
-        setSelectedCustomer(results[0]);
-        setTransactions(MOCK_TRANSACTIONS[results[0].CUST_ID] || []);
+        await loadTransactions(results[0]);
       }
+    } catch (err) {
+      setSearchError(err.response?.data?.message || "Search failed. Please try again.");
+    } finally {
       setLoading(false);
-    }, 400);
+    }
+  };
+
+  const loadTransactions = async (customer) => {
+    setSelectedCustomer(customer);
+    setTxnLoading(true);
+    try {
+      const { data } = await api.get(`/customers/${customer.FORACID}/transactions`);
+      setTransactions(data.transactions || []);
+    } catch {
+      setTransactions([]);
+    } finally {
+      setTxnLoading(false);
+    }
   };
 
   const handleSubmit = (e) => {
@@ -80,20 +98,17 @@ export default function Dashboard() {
   };
 
   const handleInputChange = (e) => {
-    setQuery(e.target.value);
+    const val = e.target.value;
+    setQuery(val);
     setShowDropdown(true);
-    // clear old results when user edits
+    fetchSuggestions(val);
     if (searched) {
       setSearched(false);
       setCustomers([]);
       setSelectedCustomer(null);
       setTransactions([]);
+      setSearchError("");
     }
-  };
-
-  const loadTransactions = (customer) => {
-    setSelectedCustomer(customer);
-    setTransactions(MOCK_TRANSACTIONS[customer.CUST_ID] || []);
   };
 
   const handleLogout = () => {
@@ -126,23 +141,19 @@ export default function Dashboard() {
           <NavItem icon={<HiCpuChip className="w-4 h-4" />} label={t.navITSupport}
             active={activePage === "itsupport"} onClick={() => { setActivePage("itsupport"); setUserMenuPage(null); }} />
         </nav>
-
-
       </aside>
 
       {/* Main */}
       <main className="ml-64 flex-1 p-8">
-
-        {/* Top bar with user menu */}
         <div className="flex items-center justify-end mb-6">
-          <UserMenu user={user} onLogout={handleLogout} onNavigate={(page) => { setUserMenuPage(page); }} />
+          <UserMenu user={user} onLogout={handleLogout} onNavigate={(page) => setUserMenuPage(page)} />
         </div>
 
-        {/* User menu pages */}
+        {/* Sub-pages from user menu */}
         {userMenuPage === "profile" && (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600">{t.back}</button>
               <span className="text-gray-300">/</span>
               <span className="text-sm font-semibold text-gray-700">{t.myProfile}</span>
             </div>
@@ -152,7 +163,7 @@ export default function Dashboard() {
         {userMenuPage === "settings" && (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600">{t.back}</button>
               <span className="text-gray-300">/</span>
               <span className="text-sm font-semibold text-gray-700">{t.settings}</span>
             </div>
@@ -162,7 +173,7 @@ export default function Dashboard() {
         {userMenuPage === "notifications" && (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600">{t.back}</button>
               <span className="text-gray-300">/</span>
               <span className="text-sm font-semibold text-gray-700">{t.notifications}</span>
             </div>
@@ -174,6 +185,7 @@ export default function Dashboard() {
           </>
         )}
 
+        {/* Search page */}
         {!userMenuPage && activePage === "search" && (
           <>
             <div className="flex items-start justify-between mb-8">
@@ -183,7 +195,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Search with live dropdown */}
             <form onSubmit={handleSubmit} className="flex gap-3 mb-8">
               <div className="flex-1 relative">
                 <div className="flex items-center bg-white border-2 border-gray-200 rounded-xl px-4 gap-3 focus-within:border-[#3d1209] transition-all">
@@ -194,42 +205,37 @@ export default function Dashboard() {
                     placeholder={t.searchPlaceholder}
                     value={query}
                     onChange={handleInputChange}
-                    onFocus={() => query.trim() && setShowDropdown(true)}
+                    onFocus={() => query.trim().length >= 2 && setShowDropdown(true)}
                     onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                     className="flex-1 py-3.5 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
                   />
                   {query && (
                     <button type="button" onClick={() => {
-                      setQuery(""); setShowDropdown(false);
-                      setSearched(false); setCustomers([]);
-                      setSelectedCustomer(null); setTransactions([]);
+                      setQuery(""); setShowDropdown(false); setSuggestions([]);
+                      setSearched(false); setCustomers([]); setSelectedCustomer(null);
+                      setTransactions([]); setSearchError("");
                     }} className="text-gray-300 hover:text-gray-500 text-lg leading-none">×</button>
                   )}
                 </div>
 
-                {/* Live suggestions dropdown */}
                 {showDropdown && suggestions.length > 0 && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
-                    {suggestions.map((c) => (
-                      <button
-                        key={c.CUSTOMER_ID}
-                        type="button"
-                        onMouseDown={() => handleSuggestionClick(c)}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0"
-                      >
+                    {suggestions.map((c, i) => (
+                      <button key={i} type="button" onMouseDown={() => handleSuggestionClick(c)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3d1209] to-[#5a1b0e] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                          {c.ACCT_NAME[0]}
+                          {(c.ACCT_NAME || "?")[0]}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-gray-800">{c.ACCT_NAME}</div>
                           <div className="text-xs text-gray-400 font-mono">{c.FORACID} · {c.PHONE_NO}</div>
                         </div>
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                          c.ACCT_STATUS === "A" ? "bg-green-100 text-green-700" :
-                          c.ACCT_STATUS === "F" ? "bg-red-100 text-red-700" :
-                          c.ACCT_STATUS === "D" ? "bg-yellow-100 text-yellow-700" :
+                          c.ACCT_STATUS === "ACTIVE"  ? "bg-green-100 text-green-700" :
+                          c.ACCT_STATUS === "FROZEN"  ? "bg-red-100 text-red-700" :
+                          c.ACCT_STATUS === "DORMANT" ? "bg-yellow-100 text-yellow-700" :
                           "bg-gray-100 text-gray-500"
-                        }`}>{c.ACCT_STATUS === "A" ? "ACTIVE" : c.ACCT_STATUS === "F" ? "FROZEN" : c.ACCT_STATUS === "D" ? "DORMANT" : "CLOSED"}</span>
+                        }`}>{c.ACCT_STATUS}</span>
                       </button>
                     ))}
                   </div>
@@ -244,8 +250,13 @@ export default function Dashboard() {
               </button>
             </form>
 
-            {/* Empty state before any search */}
-            {!searched && !loading && (
+            {searchError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                {searchError}
+              </div>
+            )}
+
+            {!searched && !loading && !searchError && (
               <div className="text-center py-20 text-gray-400">
                 <HiMagnifyingGlass className="w-14 h-14 mx-auto mb-4 text-gray-300" />
                 <p className="text-base font-medium text-gray-500">{t.searchPromptTitle}</p>
@@ -253,7 +264,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {searched && !loading && customers.length === 0 && (
+            {searched && !loading && customers.length === 0 && !searchError && (
               <div className="text-center py-20 text-gray-400">
                 <HiUserCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                 <p className="text-base">{t.noCustomerFound} "<span className="text-gray-600 font-medium">{query}</span>"</p>
@@ -277,13 +288,17 @@ export default function Dashboard() {
             )}
 
             {selectedCustomer && (
-              <TransactionTable transactions={transactions} loading={false} accountNo={selectedCustomer.FORACID} />
+              <TransactionTable
+                transactions={transactions}
+                loading={txnLoading}
+                accountNo={selectedCustomer.FORACID}
+              />
             )}
           </>
         )}
 
-        {!userMenuPage && activePage === "reports"  && <Reports />}
-        {!userMenuPage && activePage === "branches" && <Branches />}
+        {!userMenuPage && activePage === "reports"   && <Reports />}
+        {!userMenuPage && activePage === "branches"  && <Branches />}
         {!userMenuPage && activePage === "itsupport" && <ITSupport />}
       </main>
     </div>
