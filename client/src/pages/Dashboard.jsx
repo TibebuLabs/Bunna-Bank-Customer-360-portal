@@ -76,7 +76,7 @@ export default function Dashboard() {
     setSelectedCustomer(customer);
     setTxnLoading(true);
     try {
-      const { data } = await api.get(`/customers/${customer.FORACID}/transactions`);
+      const { data } = await api.get(`/customers/transactions?accountNo=${customer.FORACID}`);
       setTransactions(data.transactions || []);
     } catch {
       setTransactions([]);

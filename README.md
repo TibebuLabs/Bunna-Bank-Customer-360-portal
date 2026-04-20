@@ -1,67 +1,62 @@
 # Bunna Bank Customer 360 Portal
 
-Full-stack banking portal — React + Node.js + PostgreSQL.
+Full-stack banking portal — React + Vite frontend, Node.js serverless API, PostgreSQL (Neon).
+
+## Deploy to Vercel
+
+### 1. Create a free PostgreSQL database on Neon
+- Go to https://neon.tech and create a free project
+- Copy the **Connection String** (looks like `postgresql://user:pass@host/dbname?sslmode=require`)
+- Run the schema: paste contents of `server/database.sql` in the Neon SQL editor
+
+### 2. Deploy to Vercel
+- Push this repo to GitHub
+- Go to https://vercel.com → New Project → Import your repo
+- Set **Root Directory** to `.` (the repo root)
+- Add these **Environment Variables** in Vercel dashboard:
+  ```
+  DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
+  JWT_SECRET=your_strong_secret_here
+  NODE_ENV=production
+  ```
+- Click Deploy
+
+### 3. Local Development
+```bash
+# Install root API dependencies
+npm install
+
+# Start backend (Express server)
+cd server && npm install && npm run dev
+
+# Start frontend (new terminal)
+cd client && npm install && npm run dev
+```
 
 ## Project Structure
-
 ```
-├── client/          React + Vite frontend
+├── api/                    ← Vercel serverless functions
+│   ├── _db.js              ← PostgreSQL pool
+│   ├── _helpers.js         ← JWT, CORS helpers
+│   ├── auth/
+│   │   ├── login.js        ← POST /api/auth/login
+│   │   ├── register.js     ← POST /api/auth/register
+│   │   └── me.js           ← GET /api/auth/me
+│   ├── customers/
+│   │   ├── search.js       ← GET /api/customers/search?q=
+│   │   ├── [accountNo].js  ← GET /api/customers/:accountNo
+│   │   └── transactions.js ← GET /api/customers/transactions?accountNo=
+│   ├── branches/
+│   │   └── index.js        ← GET /api/branches
+│   └── health.js           ← GET /api/health
+├── client/                 ← React + Vite frontend
 │   └── src/
-│       ├── api/     axios instance (proxies /api → localhost:5000)
-│       ├── pages/   Login, Register, Dashboard, ...
-│       └── components/
-└── server/          Node.js + Express backend
-    └── src/
-        ├── config/      PostgreSQL pool
-        ├── controllers/ auth, customer
-        ├── middleware/  JWT auth
-        ├── models/      User, Customer
-        ├── routes/      auth, customers, branches
-        └── utils/       validation
+├── server/                 ← Local Express server (dev only)
+├── vercel.json             ← Vercel config
+└── package.json            ← Root deps for serverless functions
 ```
-
-## Setup
-
-### 1. PostgreSQL
-
-```bash
-# Create DB and tables
-psql -U postgres -f server/database.sql
-```
-
-### 2. Server
-
-```bash
-cd server
-# Edit .env with your DB credentials
-npm install
-npm run dev        # runs on http://localhost:5000
-```
-
-### 3. Client
-
-```bash
-cd client
-npm install
-npm run dev        # runs on http://localhost:5173
-```
-
-## API Endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | /api/auth/register | No | Register staff user |
-| POST | /api/auth/login | No | Login, returns JWT |
-| GET | /api/auth/me | Yes | Current user info |
-| GET | /api/customers/search?q= | Yes | Search by name/phone/account |
-| GET | /api/customers/summary | Yes | Dashboard stats |
-| GET | /api/customers/:accountNo | Yes | Single customer |
-| GET | /api/customers/:accountNo/transactions | Yes | Transactions |
-| GET | /api/branches | Yes | All branches |
-| GET | /api/branches/:solId | Yes | Single branch |
 
 ## Default Login
-
 ```
 Username: admin
 Password: Admin@123
