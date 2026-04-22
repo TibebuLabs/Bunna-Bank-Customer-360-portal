@@ -4,7 +4,14 @@ import {
   HiEnvelope, HiLockClosed, HiEye, HiEyeSlash,
   HiArrowRight, HiBuildingLibrary
 } from "react-icons/hi2";
-import api from "../api/axios";
+
+// Demo credentials
+const DEMO_USERS = [
+  { username: "admin",   password: "Admin@123",  fullName: "Admin User",    role: "supervisor" },
+  { username: "officer", password: "Officer@123", fullName: "Bank Officer",  role: "officer"    },
+  { username: "teller",  password: "Teller@123",  fullName: "Bank Teller",   role: "teller"     },
+  { username: "demo",    password: "demo",         fullName: "Demo User",     role: "officer"    },
+];
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -30,14 +37,47 @@ const LoginPage = () => {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length > 0) return setErrors(errs);
+
     setLoading(true);
-    try {
-      const { data } = await api.post("/auth/login", formData);
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
+    // Simulate network delay
+    await new Promise(r => setTimeout(r, 600));
+
+    // Try demo credentials first
+    const demoUser = DEMO_USERS.find(
+      u => u.username === formData.username && u.password === formData.password
+    );
+
+    if (demoUser) {
+      localStorage.setItem("token", "demo-token-" + Date.now());
+      localStorage.setItem("user", JSON.stringify({
+        id: 1,
+        fullName: demoUser.fullName,
+        username: demoUser.username,
+        role: demoUser.role,
+      }));
+      setLoading(false);
       navigate("/dashboard");
-    } catch (err) {
-      setErrors({ general: err.response?.data?.message || "Invalid credentials. Please try again." });
+      return;
+    }
+
+    // Try real backend (optional — gracefully falls back)
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: formData.username, password: formData.password }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+        navigate("/dashboard");
+      } else {
+        setErrors({ general: "Invalid credentials. Try: admin / Admin@123" });
+      }
+    } catch {
+      // Backend not available — show hint
+      setErrors({ general: "Invalid credentials. Try: admin / Admin@123" });
     } finally {
       setLoading(false);
     }
@@ -55,13 +95,19 @@ const LoginPage = () => {
             Bunna Bank
           </h1>
           <p className="text-amber-200/80 text-sm">Customer 360 — Staff Portal</p>
-          <div className="mt-12 space-y-4 w-full max-w-xs">
-            {["Instant Customer Lookup", "Live Oracle Database", "Read-Only & Secure"].map((f) => (
+          <div className="mt-10 space-y-3 w-full max-w-xs">
+            {["Instant Customer Lookup", "Branch Management", "AI-Powered IT Support", "Reports & Analytics"].map((f) => (
               <div key={f} className="flex items-center gap-3 bg-white/10 rounded-xl px-4 py-3">
                 <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
                 <span className="text-sm text-amber-100">{f}</span>
               </div>
             ))}
+          </div>
+          {/* Demo credentials hint */}
+          <div className="mt-8 bg-white/10 rounded-xl px-4 py-3 w-full max-w-xs text-left">
+            <p className="text-amber-300 text-xs font-semibold mb-1">Demo Credentials</p>
+            <p className="text-amber-100/80 text-xs">Username: <span className="font-mono text-white">admin</span></p>
+            <p className="text-amber-100/80 text-xs">Password: <span className="font-mono text-white">Admin@123</span></p>
           </div>
         </div>
       </div>
@@ -77,7 +123,12 @@ const LoginPage = () => {
           </div>
 
           <h2 className="text-2xl font-bold text-gray-800 mb-1">Sign In</h2>
-          <p className="text-gray-500 text-sm mb-8">Enter your credentials to continue</p>
+          <p className="text-gray-500 text-sm mb-6">Enter your credentials to continue</p>
+
+          {/* Mobile demo hint */}
+          <div className="lg:hidden mb-5 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+            Demo: <span className="font-mono font-semibold">admin</span> / <span className="font-mono font-semibold">Admin@123</span>
+          </div>
 
           {errors.general && (
             <div className="mb-5 p-3 bg-red-50 border-l-4 border-[#3d1209] rounded-r-lg text-sm text-[#3d1209]">
@@ -91,7 +142,7 @@ const LoginPage = () => {
               <div className="relative">
                 <HiEnvelope className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input type="text" name="username" value={formData.username} onChange={handleChange}
-                  placeholder="Enter your username"
+                  placeholder="e.g. admin"
                   className={`w-full pl-9 pr-4 py-3 rounded-xl border-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[#3d1209]/20 ${errors.username ? "border-red-400 bg-red-50" : "border-gray-200 focus:border-[#3d1209]"}`} />
               </div>
               {errors.username && <p className="mt-1 text-xs text-red-600">{errors.username}</p>}
@@ -114,16 +165,14 @@ const LoginPage = () => {
 
             <button type="submit" disabled={loading}
               className="w-full bg-[#3d1209] hover:bg-[#5a1b0e] text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
-              {loading ? (
-                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Signing in...</>
-              ) : (
-                <>Sign In <HiArrowRight className="w-4 h-4" /></>
-              )}
+              {loading
+                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Signing in...</>
+                : <>Sign In <HiArrowRight className="w-4 h-4" /></>}
             </button>
           </form>
 
           <p className="text-center text-sm text-gray-500 mt-6">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <Link to="/register" className="text-[#3d1209] font-semibold hover:text-amber-700 transition-colors">Register</Link>
           </p>
         </div>

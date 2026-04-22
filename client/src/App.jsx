@@ -6,13 +6,8 @@ import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 
 class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { error: null };
-  }
-  static getDerivedStateFromError(error) {
-    return { error };
-  }
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
   render() {
     if (this.state.error) {
       return (
@@ -26,10 +21,20 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Protect routes — redirect to login if no token
+// Demo mode: always allow access — no backend required
 const PrivateRoute = ({ children }) => {
   const token = localStorage.getItem("token");
-  return token ? children : <Navigate to="/login" replace />;
+  // If no token, set a demo token so visitors can access the dashboard
+  if (!token) {
+    localStorage.setItem("token", "demo-token");
+    localStorage.setItem("user", JSON.stringify({
+      id: 1,
+      fullName: "Demo User",
+      username: "demo",
+      role: "officer",
+    }));
+  }
+  return children;
 };
 
 export default function App() {
@@ -41,7 +46,7 @@ export default function App() {
             <Route path="/login"     element={<Login />} />
             <Route path="/register"  element={<Register />} />
             <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-            <Route path="*"          element={<Navigate to="/login" replace />} />
+            <Route path="*"          element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
       </ErrorBoundary>
