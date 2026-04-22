@@ -13,12 +13,24 @@ import Settings from "./Settings";
 import UserMenu from "../components/UserMenu";
 import ITSupport from "./ITSupport";
 import { useLang } from "../i18n/LanguageContext";
+import { MOCK_CUSTOMERS, MOCK_TRANSACTIONS } from "../data/mockData";
 import api from "../api/axios";
+
+// Search mock data locally
+function searchMock(q) {
+  const lower = q.toLowerCase().trim();
+  return MOCK_CUSTOMERS.filter(c =>
+    c.FORACID?.includes(q.trim()) ||
+    c.PHONE_NO?.includes(q.trim()) ||
+    c.ACCT_NAME?.toLowerCase().includes(lower) ||
+    c.CUST_ID?.toLowerCase().includes(lower)
+  );
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { t } = useLang();
-  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Staff User","role":"officer"}');
+  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Demo User","role":"officer"}');
   const inputRef = useRef(null);
 
   const [activePage, setActivePage]     = useState("search");
@@ -32,18 +44,11 @@ export default function Dashboard() {
   const [txnLoading, setTxnLoading]     = useState(false);
   const [searched, setSearched]         = useState(false);
   const [searchError, setSearchError]   = useState("");
-
-  // Live suggestions (debounced via state)
   const [suggestions, setSuggestions]   = useState([]);
 
-  const fetchSuggestions = useCallback(async (q) => {
+  const fetchSuggestions = useCallback((q) => {
     if (!q || q.trim().length < 2) { setSuggestions([]); return; }
-    try {
-      const { data } = await api.get(`/customers/search?q=${encodeURIComponent(q)}`);
-      setSuggestions(data.customers || []);
-    } catch {
-      setSuggestions([]);
-    }
+    setSuggestions(searchMock(q));
   }, []);
 
   const runSearch = async (input) => {
@@ -58,18 +63,33 @@ export default function Dashboard() {
     setSelectedCustomer(null);
     setTransactions([]);
 
+    // Try real API first, fall back to mock data
     try {
       const { data } = await api.get(`/customers/search?q=${encodeURIComponent(raw)}`);
       const results = data.customers || [];
       setCustomers(results);
-      if (results.length === 1) {
-        await loadTransactions(results[0]);
-      }
-    } catch (err) {
-      setSearchError(err.response?.data?.message || "Search failed. Please try again.");
+      if (results.length === 1) await loadTransactions(results[0]);
+    } catch {
+      // API unavailable — use mock data
+      const results = searchMock(raw);
+      setCustomers(results);
+      if (results.length === 1) loadTransactionsMock(results[0]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadTransactionsMock = (customer) => {
+    setSelectedCustomer(customer);
+    const txns = MOCK_TRANSACTIONS[customer.CUST_ID] || [];
+    // Normalize field names to match what TransactionTable expects
+    setTransactions(txns.map(t => ({
+      ...t,
+      TRAN_DATE: t.TXN_DATE || t.TRAN_DATE,
+      TRAN_TYPE: t.TXN_TYPE || t.TRAN_TYPE,
+      TRAN_AMT:  t.AMOUNT   || t.TRAN_AMT,
+      REMARKS:   t.DESCRIPTION || t.REMARKS,
+    })));
   };
 
   const loadTransactions = async (customer) => {
@@ -79,7 +99,7 @@ export default function Dashboard() {
       const { data } = await api.get(`/customers/transactions?accountNo=${customer.FORACID}`);
       setTransactions(data.transactions || []);
     } catch {
-      setTransactions([]);
+      loadTransactionsMock(customer);
     } finally {
       setTxnLoading(false);
     }
@@ -103,11 +123,8 @@ export default function Dashboard() {
     setShowDropdown(true);
     fetchSuggestions(val);
     if (searched) {
-      setSearched(false);
-      setCustomers([]);
-      setSelectedCustomer(null);
-      setTransactions([]);
-      setSearchError("");
+      setSearched(false); setCustomers([]); setSelectedCustomer(null);
+      setTransactions([]); setSearchError("");
     }
   };
 
@@ -130,7 +147,6 @@ export default function Dashboard() {
             <div className="text-amber-300/70 text-xs">{t.appSub}</div>
           </div>
         </div>
-
         <nav className="flex-1 px-3 py-5 space-y-1">
           <NavItem icon={<HiMagnifyingGlass className="w-4 h-4" />} label={t.navSearch}
             active={activePage === "search"} onClick={() => { setActivePage("search"); setUserMenuPage(null); }} />
@@ -149,7 +165,6 @@ export default function Dashboard() {
           <UserMenu user={user} onLogout={handleLogout} onNavigate={(page) => setUserMenuPage(page)} />
         </div>
 
-        {/* Sub-pages from user menu */}
         {userMenuPage === "profile" && (
           <>
             <div className="flex items-center gap-3 mb-6">
@@ -185,13 +200,16 @@ export default function Dashboard() {
           </>
         )}
 
-        {/* Search page */}
         {!userMenuPage && activePage === "search" && (
           <>
             <div className="flex items-start justify-between mb-8">
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">{t.customerLookup}</h1>
                 <p className="text-gray-500 text-sm mt-1">{t.searchSubtitle}</p>
+              </div>
+              {/* Demo hint banner */}
+              <div className="hidden md:flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700">
+                <span className="font-semibold">Demo:</span> Try searching <span className="font-mono bg-amber-100 px-1 rounded">Tibebu</span> or <span className="font-mono bg-amber-100 px-1 rounded">0911234567</span>
               </div>
             </div>
 
@@ -231,11 +249,11 @@ export default function Dashboard() {
                           <div className="text-xs text-gray-400 font-mono">{c.FORACID} · {c.PHONE_NO}</div>
                         </div>
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                          c.ACCT_STATUS === "ACTIVE"  ? "bg-green-100 text-green-700" :
-                          c.ACCT_STATUS === "FROZEN"  ? "bg-red-100 text-red-700" :
-                          c.ACCT_STATUS === "DORMANT" ? "bg-yellow-100 text-yellow-700" :
+                          c.ACCT_STATUS === "A" ? "bg-green-100 text-green-700" :
+                          c.ACCT_STATUS === "F" ? "bg-red-100 text-red-700" :
+                          c.ACCT_STATUS === "D" ? "bg-yellow-100 text-yellow-700" :
                           "bg-gray-100 text-gray-500"
-                        }`}>{c.ACCT_STATUS}</span>
+                        }`}>{c.ACCT_STATUS === "A" ? "ACTIVE" : c.ACCT_STATUS === "F" ? "FROZEN" : c.ACCT_STATUS === "D" ? "DORMANT" : "CLOSED"}</span>
                       </button>
                     ))}
                   </div>
@@ -251,9 +269,7 @@ export default function Dashboard() {
             </form>
 
             {searchError && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-                {searchError}
-              </div>
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{searchError}</div>
             )}
 
             {!searched && !loading && !searchError && (
@@ -261,13 +277,14 @@ export default function Dashboard() {
                 <HiMagnifyingGlass className="w-14 h-14 mx-auto mb-4 text-gray-300" />
                 <p className="text-base font-medium text-gray-500">{t.searchPromptTitle}</p>
                 <p className="text-sm mt-1">{t.searchPromptSub}</p>
+                <p className="text-xs mt-3 text-amber-600">Demo: search for <span className="font-mono font-semibold">Tibebu</span>, <span className="font-mono font-semibold">Tigist</span>, or <span className="font-mono font-semibold">0911234567</span></p>
               </div>
             )}
 
             {searched && !loading && customers.length === 0 && !searchError && (
               <div className="text-center py-20 text-gray-400">
                 <HiUserCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                <p className="text-base">{t.noCustomerFound} "<span className="text-gray-600 font-medium">{query}</span>"</p>
+                <p className="text-base">{t.noCustomerFound} &ldquo;<span className="text-gray-600 font-medium">{query}</span>&rdquo;</p>
                 <p className="text-sm mt-2">{t.tryDifferent}</p>
               </div>
             )}
@@ -288,11 +305,7 @@ export default function Dashboard() {
             )}
 
             {selectedCustomer && (
-              <TransactionTable
-                transactions={transactions}
-                loading={txnLoading}
-                accountNo={selectedCustomer.FORACID}
-              />
+              <TransactionTable transactions={transactions} loading={txnLoading} accountNo={selectedCustomer.FORACID} />
             )}
           </>
         )}
