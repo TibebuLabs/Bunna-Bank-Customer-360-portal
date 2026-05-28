@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   HiMagnifyingGlass, HiBuildingLibrary,
@@ -16,57 +16,95 @@ import RegisterBranch from "./RegisterBranch";
 import NetworkInfo from "./NetworkInfo";
 import { useLang } from "../i18n/LanguageContext";
 import { MOCK_CUSTOMERS, MOCK_TRANSACTIONS } from "../data/mockData";
+import api from "../api/axios";
+
+// Search mock data locally
+function searchMock(q) {
+  const lower = q.toLowerCase().trim();
+  return MOCK_CUSTOMERS.filter(c =>
+    c.FORACID?.includes(q.trim()) ||
+    c.PHONE_NO?.includes(q.trim()) ||
+    c.ACCT_NAME?.toLowerCase().includes(lower) ||
+    c.CUST_ID?.toLowerCase().includes(lower)
+  );
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { t } = useLang();
-  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Tibebu Teferi","role":"Developer"}');
+  const user = JSON.parse(localStorage.getItem("user") || '{"fullName":"Demo User","role":"officer"}');
   const inputRef = useRef(null);
 
-  const [activePage, setActivePage] = useState("search");
-  const [userMenuPage, setUserMenuPage] = useState(null); // "profile" | "settings" | "notifications" | null
-  const [query, setQuery] = useState("");
+  const [activePage, setActivePage]     = useState("search");
+  const [userMenuPage, setUserMenuPage] = useState(null);
+  const [query, setQuery]               = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
-  const [customers, setCustomers] = useState([]);
+  const [customers, setCustomers]       = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [txnLoading, setTxnLoading]     = useState(false);
+  const [searched, setSearched]         = useState(false);
+  const [searchError, setSearchError]   = useState("");
+  const [suggestions, setSuggestions]   = useState([]);
 
-  // Live suggestions while typing
-  const suggestions = (query || "").trim().length > 0
-    ? MOCK_CUSTOMERS.filter(c =>
-        c.FORACID?.includes((query || "").trim()) ||
-        c.PHONE_NO?.includes((query || "").trim()) ||
-        c.ACCT_NAME?.toLowerCase().includes((query || "").trim().toLowerCase()) ||
-        c.CUST_ID?.toLowerCase().includes((query || "").trim().toLowerCase())
-      )
-    : [];
+  const fetchSuggestions = useCallback((q) => {
+    if (!q || q.trim().length < 2) { setSuggestions([]); return; }
+    setSuggestions(searchMock(q));
+  }, []);
 
-  const runSearch = (input) => {
+  const runSearch = async (input) => {
     const raw = (input || "").trim();
     if (!raw) return;
     setShowDropdown(false);
+    setSuggestions([]);
     setLoading(true);
     setSearched(true);
+    setSearchError("");
     setCustomers([]);
     setSelectedCustomer(null);
     setTransactions([]);
 
-    setTimeout(() => {
-      const lower = raw.toLowerCase();
-      const results = MOCK_CUSTOMERS.filter(c =>
-        c.FORACID === raw ||                          // exact account number
-        c.PHONE_NO === raw ||                         // exact phone number
-        c.ACCT_NAME?.toLowerCase().includes(lower)   // partial name match
-      );
+    // Try real API first, fall back to mock data
+    try {
+      const { data } = await api.get(`/customers/search?q=${encodeURIComponent(raw)}`);
+      const results = data.customers || [];
       setCustomers(results);
-      if (results.length === 1) {
-        setSelectedCustomer(results[0]);
-        setTransactions(MOCK_TRANSACTIONS[results[0].CUST_ID] || []);
-      }
+      if (results.length === 1) await loadTransactions(results[0]);
+    } catch {
+      // API unavailable — use mock data
+      const results = searchMock(raw);
+      setCustomers(results);
+      if (results.length === 1) loadTransactionsMock(results[0]);
+    } finally {
       setLoading(false);
-    }, 400);
+    }
+  };
+
+  const loadTransactionsMock = (customer) => {
+    setSelectedCustomer(customer);
+    const txns = MOCK_TRANSACTIONS[customer.CUST_ID] || [];
+    // Normalize field names to match what TransactionTable expects
+    setTransactions(txns.map(t => ({
+      ...t,
+      TRAN_DATE: t.TXN_DATE || t.TRAN_DATE,
+      TRAN_TYPE: t.TXN_TYPE || t.TRAN_TYPE,
+      TRAN_AMT:  t.AMOUNT   || t.TRAN_AMT,
+      REMARKS:   t.DESCRIPTION || t.REMARKS,
+    })));
+  };
+
+  const loadTransactions = async (customer) => {
+    setSelectedCustomer(customer);
+    setTxnLoading(true);
+    try {
+      const { data } = await api.get(`/customers/transactions?accountNo=${customer.FORACID}`);
+      setTransactions(data.transactions || []);
+    } catch {
+      loadTransactionsMock(customer);
+    } finally {
+      setTxnLoading(false);
+    }
   };
 
   const handleSubmit = (e) => {
@@ -82,20 +120,14 @@ export default function Dashboard() {
   };
 
   const handleInputChange = (e) => {
-    setQuery(e.target.value);
+    const val = e.target.value;
+    setQuery(val);
     setShowDropdown(true);
-    // clear old results when user edits
+    fetchSuggestions(val);
     if (searched) {
-      setSearched(false);
-      setCustomers([]);
-      setSelectedCustomer(null);
-      setTransactions([]);
+      setSearched(false); setCustomers([]); setSelectedCustomer(null);
+      setTransactions([]); setSearchError("");
     }
-  };
-
-  const loadTransactions = (customer) => {
-    setSelectedCustomer(customer);
-    setTransactions(MOCK_TRANSACTIONS[customer.CUST_ID] || []);
   };
 
   const handleLogout = () => {
@@ -117,7 +149,6 @@ export default function Dashboard() {
             <div className="text-amber-300/70 text-xs">{t.appSub}</div>
           </div>
         </div>
-
         <nav className="flex-1 px-3 py-5 space-y-1">
           <NavItem icon={<HiMagnifyingGlass className="w-4 h-4" />} label={t.navSearch}
             active={activePage === "search"} onClick={() => { setActivePage("search"); setUserMenuPage(null); }} />
@@ -130,23 +161,18 @@ export default function Dashboard() {
           <NavItem icon={<HiWifi className="w-4 h-4" />} label={t.navNetworkInfo}
             active={activePage === "networkinfo"} onClick={() => { setActivePage("networkinfo"); setUserMenuPage(null); }} />
         </nav>
-
-
       </aside>
 
       {/* Main */}
       <main className="ml-64 flex-1 p-8">
-
-        {/* Top bar with user menu */}
         <div className="flex items-center justify-end mb-6">
-          <UserMenu user={user} onLogout={handleLogout} onNavigate={(page) => { setUserMenuPage(page); }} />
+          <UserMenu user={user} onLogout={handleLogout} onNavigate={(page) => setUserMenuPage(page)} />
         </div>
 
-        {/* User menu pages */}
         {userMenuPage === "profile" && (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600">{t.back}</button>
               <span className="text-gray-300">/</span>
               <span className="text-sm font-semibold text-gray-700">{t.myProfile}</span>
             </div>
@@ -156,7 +182,7 @@ export default function Dashboard() {
         {userMenuPage === "settings" && (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600">{t.back}</button>
               <span className="text-gray-300">/</span>
               <span className="text-sm font-semibold text-gray-700">{t.settings}</span>
             </div>
@@ -166,7 +192,7 @@ export default function Dashboard() {
         {userMenuPage === "notifications" && (
           <>
             <div className="flex items-center gap-3 mb-6">
-              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">{t.back}</button>
+              <button onClick={() => setUserMenuPage(null)} className="text-xs text-gray-400 hover:text-gray-600">{t.back}</button>
               <span className="text-gray-300">/</span>
               <span className="text-sm font-semibold text-gray-700">{t.notifications}</span>
             </div>
@@ -185,9 +211,12 @@ export default function Dashboard() {
                 <h1 className="text-2xl font-bold text-gray-800">{t.customerLookup}</h1>
                 <p className="text-gray-500 text-sm mt-1">{t.searchSubtitle}</p>
               </div>
+              {/* Demo hint banner */}
+              <div className="hidden md:flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700">
+                <span className="font-semibold">Demo:</span> Try searching <span className="font-mono bg-amber-100 px-1 rounded">Tibebu</span> or <span className="font-mono bg-amber-100 px-1 rounded">0911234567</span>
+              </div>
             </div>
 
-            {/* Search with live dropdown */}
             <form onSubmit={handleSubmit} className="flex gap-3 mb-8">
               <div className="flex-1 relative">
                 <div className="flex items-center bg-white border-2 border-gray-200 rounded-xl px-4 gap-3 focus-within:border-[#3d1209] transition-all">
@@ -198,31 +227,26 @@ export default function Dashboard() {
                     placeholder={t.searchPlaceholder}
                     value={query}
                     onChange={handleInputChange}
-                    onFocus={() => query.trim() && setShowDropdown(true)}
+                    onFocus={() => query.trim().length >= 2 && setShowDropdown(true)}
                     onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                     className="flex-1 py-3.5 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
                   />
                   {query && (
                     <button type="button" onClick={() => {
-                      setQuery(""); setShowDropdown(false);
-                      setSearched(false); setCustomers([]);
-                      setSelectedCustomer(null); setTransactions([]);
+                      setQuery(""); setShowDropdown(false); setSuggestions([]);
+                      setSearched(false); setCustomers([]); setSelectedCustomer(null);
+                      setTransactions([]); setSearchError("");
                     }} className="text-gray-300 hover:text-gray-500 text-lg leading-none">×</button>
                   )}
                 </div>
 
-                {/* Live suggestions dropdown */}
                 {showDropdown && suggestions.length > 0 && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
-                    {suggestions.map((c) => (
-                      <button
-                        key={c.CUSTOMER_ID}
-                        type="button"
-                        onMouseDown={() => handleSuggestionClick(c)}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0"
-                      >
+                    {suggestions.map((c, i) => (
+                      <button key={i} type="button" onMouseDown={() => handleSuggestionClick(c)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-50 last:border-0">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3d1209] to-[#5a1b0e] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                          {c.ACCT_NAME[0]}
+                          {(c.ACCT_NAME || "?")[0]}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-gray-800">{c.ACCT_NAME}</div>
@@ -248,19 +272,23 @@ export default function Dashboard() {
               </button>
             </form>
 
-            {/* Empty state before any search */}
-            {!searched && !loading && (
+            {searchError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{searchError}</div>
+            )}
+
+            {!searched && !loading && !searchError && (
               <div className="text-center py-20 text-gray-400">
                 <HiMagnifyingGlass className="w-14 h-14 mx-auto mb-4 text-gray-300" />
                 <p className="text-base font-medium text-gray-500">{t.searchPromptTitle}</p>
                 <p className="text-sm mt-1">{t.searchPromptSub}</p>
+                <p className="text-xs mt-3 text-amber-600">Demo: search for <span className="font-mono font-semibold">Tibebu</span>, <span className="font-mono font-semibold">Tigist</span>, or <span className="font-mono font-semibold">0911234567</span></p>
               </div>
             )}
 
-            {searched && !loading && customers.length === 0 && (
+            {searched && !loading && customers.length === 0 && !searchError && (
               <div className="text-center py-20 text-gray-400">
                 <HiUserCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                <p className="text-base">{t.noCustomerFound} "<span className="text-gray-600 font-medium">{query}</span>"</p>
+                <p className="text-base">{t.noCustomerFound} &ldquo;<span className="text-gray-600 font-medium">{query}</span>&rdquo;</p>
                 <p className="text-sm mt-2">{t.tryDifferent}</p>
               </div>
             )}
@@ -281,15 +309,15 @@ export default function Dashboard() {
             )}
 
             {selectedCustomer && (
-              <TransactionTable transactions={transactions} loading={false} accountNo={selectedCustomer.FORACID} />
+              <TransactionTable transactions={transactions} loading={txnLoading} accountNo={selectedCustomer.FORACID} />
             )}
           </>
         )}
 
-        {!userMenuPage && activePage === "reports"  && <Reports />}
-        {!userMenuPage && activePage === "branches" && <Branches />}
+        {!userMenuPage && activePage === "reports"      && <Reports />}
+        {!userMenuPage && activePage === "branches"     && <Branches />}
         {!userMenuPage && activePage === "registerbranch" && <RegisterBranch onBack={() => setActivePage("branches")} />}
-        {!userMenuPage && activePage === "itsupport" && <ITSupport />}
+        {!userMenuPage && activePage === "itsupport"   && <ITSupport />}
         {!userMenuPage && activePage === "networkinfo" && <NetworkInfo />}
       </main>
     </div>
