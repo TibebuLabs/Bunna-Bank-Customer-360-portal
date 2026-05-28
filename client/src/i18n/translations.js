@@ -6,6 +6,8 @@ const en = {
   navReports: "Reports",
   navBranches: "Branches",
   navITSupport: "IT Support",
+  navRegisterBranch: "Register Branch",
+  navNetworkInfo: "Network Information",
 
   // UserMenu
   online: "Online",
@@ -202,6 +204,8 @@ const am = {
   navReports: "ሪፖርቶች",
   navBranches: "ቅርንጫፎች",
   navITSupport: "አይቲ ድጋፍ",
+  navRegisterBranch: "ቅርንጫፍ ምዝገባ",
+  navNetworkInfo: "የኔትወርክ መረጃ",
 
   // UserMenu
   online: "በመስመር ላይ",
