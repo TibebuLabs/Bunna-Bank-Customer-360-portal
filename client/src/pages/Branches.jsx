@@ -1,17 +1,24 @@
 import { useState } from "react";
 import { useLang } from "../i18n/LanguageContext";
-import { HiMagnifyingGlass, HiMapPin, HiPhone, HiUser, HiBuildingOffice2, HiXMark } from "react-icons/hi2";
+import { HiMagnifyingGlass, HiMapPin, HiPhone, HiUser, HiBuildingOffice2, HiXMark, HiPlus } from "react-icons/hi2";
 import { BUNNA_BRANCHES } from "../data/branchData";
+import RegisterBranch from "./RegisterBranch";
 
 const REGIONS = ["All", ...Array.from(new Set(BUNNA_BRANCHES.map(b => b.region))).sort()];
 const DISTRICTS = ["All", ...Array.from(new Set(BUNNA_BRANCHES.map(b => b.district))).sort()];
 
 export default function Branches() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const isAm = lang === "am";
   const [search, setSearch] = useState("");
   const [regionFilter, setRegionFilter] = useState("All");
   const [districtFilter, setDistrictFilter] = useState("All");
   const [selected, setSelected] = useState(null);
+  const [registering, setRegistering] = useState(false);
+
+  if (registering) {
+    return <RegisterBranch onBack={() => setRegistering(false)} />;
+  }
 
   const filtered = BUNNA_BRANCHES.filter(b => {
     const q = search.toLowerCase();
@@ -40,6 +47,12 @@ export default function Branches() {
           <h1 className="text-2xl font-bold text-gray-800">{t.branchesTitle}</h1>
           <p className="text-gray-500 text-sm mt-1">{BUNNA_BRANCHES.length} {t.branchesSubtitle} {filtered.length}</p>
         </div>
+        <button
+          onClick={() => setRegistering(true)}
+          className="flex items-center gap-2 bg-[#3d1209] hover:bg-[#5a1b0e] text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-[#3d1209]/20">
+          <HiPlus className="w-4 h-4" />
+          {isAm ? "አዲስ ቅርንጫፍ" : "New Branch"}
+        </button>
       </div>
 
       {/* Search + Filters */}

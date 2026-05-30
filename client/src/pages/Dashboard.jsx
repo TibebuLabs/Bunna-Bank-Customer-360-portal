@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   HiMagnifyingGlass, HiBuildingLibrary,
-  HiChartBar, HiCodeBracket, HiUserCircle, HiCpuChip
+  HiChartBar, HiCodeBracket, HiUserCircle, HiCpuChip, HiWifi
 } from "react-icons/hi2";
 import CustomerCard from "../components/CustomerCard";
 import TransactionTable from "../components/TransactionTable";
@@ -12,6 +12,8 @@ import Profile from "./Profile";
 import Settings from "./Settings";
 import UserMenu from "../components/UserMenu";
 import ITSupport from "./ITSupport";
+import RegisterBranch from "./RegisterBranch";
+import NetworkInfo from "./NetworkInfo";
 import { useLang } from "../i18n/LanguageContext";
 import { MOCK_CUSTOMERS, MOCK_TRANSACTIONS } from "../data/mockData";
 import api from "../api/axios";
@@ -156,6 +158,8 @@ export default function Dashboard() {
             active={activePage === "branches"} onClick={() => { setActivePage("branches"); setUserMenuPage(null); }} />
           <NavItem icon={<HiCpuChip className="w-4 h-4" />} label={t.navITSupport}
             active={activePage === "itsupport"} onClick={() => { setActivePage("itsupport"); setUserMenuPage(null); }} />
+          <NavItem icon={<HiWifi className="w-4 h-4" />} label={t.navNetworkInfo}
+            active={activePage === "networkinfo"} onClick={() => { setActivePage("networkinfo"); setUserMenuPage(null); }} />
         </nav>
       </aside>
 
@@ -310,9 +314,11 @@ export default function Dashboard() {
           </>
         )}
 
-        {!userMenuPage && activePage === "reports"   && <Reports />}
-        {!userMenuPage && activePage === "branches"  && <Branches />}
-        {!userMenuPage && activePage === "itsupport" && <ITSupport />}
+        {!userMenuPage && activePage === "reports"      && <Reports />}
+        {!userMenuPage && activePage === "branches"     && <Branches />}
+        {!userMenuPage && activePage === "registerbranch" && <RegisterBranch onBack={() => setActivePage("branches")} />}
+        {!userMenuPage && activePage === "itsupport"   && <ITSupport />}
+        {!userMenuPage && activePage === "networkinfo" && <NetworkInfo />}
       </main>
     </div>
   );
